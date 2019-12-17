@@ -1,0 +1,175 @@
+---
+title: "Generation of Simulated Data"
+author: "Josh Cullen"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  pdf_document: 
+    fig_caption: yes
+    latex_engine: xelatex
+header-includes:
+  - \usepackage{float}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+# Background
+
+As part of the upcoming manuscript that compares our newly developed method against frequently used methods, we will be testing them using both simulated and empirical data. These tests will be performed as identify and recover pre-specified activity centers (ACs) and pre-specified behavioral states. There are a wide variety of options available in terms of simulating animal movement, whether based on empirical distributions or by using parametric distributions to generate real data. In other cases, simulations can be generated from a process model that already has built in constraints on what is being simulated (hidden Markov models via the *moveHMM* package).
+\hfill\break
+
+To make the method comparison as unbiased as possible, I decided to use methods to simulate data that were only based on a correlated random walk (CRW) or some version of this. I initially considered using one of three different R packages to perform these simulations: *adehabitatLT, trajr, waddle*.
+\hfill\break
+
+The *adehabitatLT* package is widely used for evaluating trajectories and also for simulating paths based on empirical distributions of step lengths (SL) and turning angles (TA). However, this package did not have a convenient method for producing multistate trajectories, which would be used to simulate changes in behavior, or for simulating based on a biased CRW (BCRW) that could be used to incorporate attraction to multiple ACs. Additionally, the parametric distributions (SL: chi; TA: wrapped normal) from which these simulated data would be drawn are not used by any other common method for behavior classification. Therefore, this package was not used.
+\hfill\break
+
+The *trajr* package also does not have the capability to generate a multistate trajectory or to include ACs as part of a BCRW. Additionally, there is limited control over defining the distribution from which step lengths and turning angles are drawn. Therefore, the *trajr* package was not used.
+\hfill\break
+
+The *waddle* package was used to generate simulated trajectories used to compare first passage time (FPT), behavioral change point analysis (BCPA), Bayesian partitioning of Markov models (BPMM), and multistate random walks (MRW) in the publication by Gurarie et al. (2016). This study generated three different simulations on which to compare the aformentioned methods, for which BCRW appeared to be the best option. This appeared to be the best option since it would allow the specification of the locations for ACs, as well as the attraction strength to these locations. Additionally, these BCRWs could be modeled in a multistate fashion, which would potentially permit the generation of a single simulated trajectory on which to test the model for identifying ACs in addition to behavioral states. However, there was limited capacity for controlling the Weibull distribution from which SLs are drawn and therefore this model could only be used to test the algorithms to identify ACs. The authors also used another model, which was a correlated velocity movement (CVM) model in continuous time based on a Ornstein-Uhlenbeck (OU) process. This (OU) process is essentially the continuous-time version of a CRW used in discrete-time frameworks. By using a multistate version of the CVM model, I could have greater control over changes in speed (SL) over each time segment, as well as the concentration parameter governing the distribution of TA. Therefore, two sets of simulated data were generated from the *waddle* package that could fulfill the needs for identifying ACs as well as behavioral states.
+
+
+# Simulations
+
+## BCRW for identifying ACs
+
+First, values will be chosen for the number of observations per time segment, the ACs, the strength of attraction towards ACs, and the concentration parameters of the TA distribution:
+
+```{r, echo=TRUE}
+
+library(waddle)
+library(tidyverse)
+library(viridis)
+
+set.seed(1)
+
+#multistate BCRW w 5 phases
+ns <- c(100,50,100,50,100)  #N
+Z.centers <- c(0,10-5i,10-5i,30,30)  #locations of ACs
+attractions <- c(0.9,0.9,0.9,0.9,0.9)  #strength of attraction towards ACs
+rhos <- c(0.2,0.4,0.2,0.9,0.2)  #concentration parameter for TA
+
+BCRW.sim <- multiBCRW(rhos=rhos, attractions=attractions, Z.centers=Z.centers, ns=ns)
+```
+
+```{r, fig.pos='H', fig.cap="BCRW model. The different colors each represent time segments with different values for the concentration parameter on the turning angles, where purple is the most uniform and yellow is the most concentrated near an angle of 0 radians. Orange circles denote the locations of the three specified ACs."}
+
+plot(BCRW.sim, col = viridis(n=3)[c(1,2,1,3,1)])
+points(Z.centers, cex=3, col="orange", lwd=2)
+
+```
+
+
+All time intervals are regular, so the SL is also representative of the speed for each relocation. Since the way this model is set up does not easily allow for changing the SL, all SL/speed should be roughly equal for all time segments:
+
+```{r, fig.cap="Dashed grey lines indicate the change between time segments and the red lines denote the mean value of the SL/speed by time segment."}
+# step length
+S <- diff(BCRW.sim$Z)
+
+nu.means<- matrix(NA, 5, 1)
+for (i in 1:length(unique(BCRW.sim$Phase))) {  #convert SL/speed from complex to real numbers
+  ind<- which(BCRW.sim$Phase == i)
+  
+  nu.means[i,]<- mean(BCRW.sim$Z[ind] %>% diff() %>% Mod(), na.rm = T)
+}
+
+plot.ts(Mod(S))
+abline(v = c(100,150,250,300), lwd=3, col="darkgrey", lty=3)
+clip(1,100,0,20)
+abline(h=nu.means[1], col="red", lwd=2)
+clip(101,150,0,20)
+abline(h=nu.means[2], col="red", lwd=2)
+clip(151,250,0,20)
+abline(h=nu.means[3], col="red", lwd=2)
+clip(251,300,0,20)
+abline(h=nu.means[4], col="red", lwd=2)
+clip(300,400,0,20)
+abline(h=nu.means[5], col="red", lwd=2)
+```
+
+Although there are not any differences in the SL across time segments, the concentration parameter $\rho$ allows the user to determine whether TA is concentrated around 0 rad or is dispersed across all angles:
+
+```{r, fig.align='center', fig.width=7, fig.height=3}
+# absolute orientation
+Phi <- Arg(diff(BCRW.sim$Z))
+# turning angles
+Theta <- diff(Phi)
+# rose diagrams
+require(circular)
+par(mfrow=c(1,5))
+rose.diag(Theta[1:100], bins=8, main="Phase I", prop=2, col=viridis(n=3)[1])
+rose.diag(Theta[101:150],bins=8, main="Phase II", prop=2, col=viridis(n=3)[2])
+rose.diag(Theta[151:250], bins=8, main="Phase III", prop=2, col=viridis(n=3)[1])
+rose.diag(Theta[251:300], bins=8, main="Phase IV", prop=2, col=viridis(n=3)[3])
+rose.diag(Theta[301:400], bins=8, main="Phase V", prop=2, col=viridis(n=3)[1])
+par(mfrow=c(1,1))
+```
+\hfill\break
+
+
+## CVM for identifying behaviors
+
+Parameters governing the mean speed per time segment ($\nu$) and the time-scale of autocorrelation ($\tau$; or tortuosity) were defined for each time segment, for which the durations were defined by *Ts*. With this modeling framework, three behaviors were created by adjusting the mean speed and tortuosity (proxy for TA):
+
+```{r, echo=TRUE, fig.cap="Colors denote different behavioral states based on mean speed and time-scale of autocorrelation in the correlated velocity movement model. Cooler to warmer colors represent a change from slower to faster behaviors for each of the five time segments."}
+set.seed(10)
+nus <- c(1,2.5,1,10,1)
+taus <- c(1,1,1,10,1)
+Ts <- c(100,50,100,50,100)
+CVM.sim <- multiCVM(taus, nus, Ts)
+plot(CVM.sim, col = viridis(n=3)[c(1,2,1,3,1)])
+
+```
+
+By having the power to control the mean speed, the step lengths did vary across these different behaviors:
+
+```{r, fig.cap="A trace of the speed per observation is shown for the regularized trajectory. Dashed grey lines indicate changes by time segment and red lines represent the mean speed per segment."}
+#calculate and plot mean speeds
+S <- diff(CVM.sim$Z) %>% Mod()
+
+nu.means<- matrix(NA, 5, 1)
+for (i in 1:length(unique(CVM.sim$Phase))) {
+  ind<- which(CVM.sim$Phase == i)
+  
+  nu.means[i,]<- mean(CVM.sim$Z[ind] %>% diff() %>% Mod(), na.rm = T)
+}
+
+
+plot.ts(S)
+abline(v = c(100-1,150-2,250-3,300-4), lwd=3, col="darkgrey", lty=3)
+clip(1,99,0,20)
+abline(h=nu.means[1], col="red", lwd=2)
+clip(100,148,0,20)
+abline(h=nu.means[2], col="red", lwd=2)
+clip(149,247,0,20)
+abline(h=nu.means[3], col="red", lwd=2)
+clip(248,296,0,20)
+abline(h=nu.means[4], col="red", lwd=2)
+clip(297,395,0,20)
+abline(h=nu.means[5], col="red", lwd=2)
+```
+
+
+Similar to the concentration parameter $\rho$ used in the BCRW model, $\tau$ controlled the turning angle for the CVM model:
+
+```{r, fig.width=7, fig.height=3}
+# absolute orientation
+Phi <- diff(CVM.sim$Z) %>% Arg()
+# turning angles
+Theta <- diff(Phi)
+# rose diagrams
+require(circular)
+par(mfrow=c(1,5))
+rose.diag(Theta[1:100], bins=8, main="Phase I", prop=2, col=viridis(n=3)[1])
+rose.diag(Theta[101:150],bins=8, main="Phase II", prop=2, col=viridis(n=3)[2])
+rose.diag(Theta[151:250], bins=8, main="Phase III", prop=2, col=viridis(n=3)[1])
+rose.diag(Theta[251:300], bins=8, main="Phase IV", prop=2, col=viridis(n=3)[3])
+rose.diag(Theta[301:400], bins=8, main="Phase V", prop=2, col=viridis(n=3)[1])
+par(mfrow=c(1,1))
+```
+\hfill\break
+
+
+These models can be modified depending on the complexity we would like to include (e.g. longer tracks, more ACs, more behaviors, more trajectories, etc). Apart from coding our own BCRW model or using the restrictive framework of mechanistic movement models (i.e. HMMs) to generate simulated trajectories, this package appears to provide the best options available that I could find from R packages for animal movement.
