@@ -56,18 +56,24 @@ ggplot() +
 ### KDE ###
 ###########
 
-dat.spdf<- dat[,c("x","y")]
-coordinates(dat.spdf)<- ~x+y
-proj4string(dat.spdf)<- CRS("+init=epsg:32617")
+## H plug-in
+dat.coords<- dat[,c("x","y")]
+Hpi.dat<- Hpi(x=dat.coords, nstage = 2)
+kde.hpi<- kde(x=dat.coords, H=Hpi.dat, compute.cont = T)
+kd_df <- expand.grid(x=kde.hpi$eval.points[[1]], y=kde.hpi$eval.points[[2]]) %>% 
+  mutate(z = c(kde.hpi$estimate))
 
-# 5 km w 1 cell buffer
-grid<- raster(extent(dat.spdf) + 10000)
-res(grid)<- 500
-proj4string(grid)<- CRS("+init=epsg:32617")
-grid[]<- 0
+ggplot() +
+  geom_sf(data = fl) +
+  geom_sf(data = lakes10, fill = "black", alpha = 0.5) +
+  coord_sf(xlim = c(min(dat$x-20000), max(dat$x+20000)),
+           ylim = c(min(dat$y-20000), max(dat$y+20000)), expand = FALSE) +
+  geom_tile(data=kd_df, aes(x, y, fill=z), alpha=0.75) +
+  # geom_point(data = dat.coords, aes(x, y), alpha = I(0.2), size = I(0.4), colour = I("grey75")) +
+  geom_point(data = ac.coords, aes(x, y), color = viridis(n=9)[7], size = 2, pch=1, stroke=0.5) +
+  scale_fill_viridis_c()+
+  theme_bw() +
+  theme(legend.position = "none")
 
-grid.spxdf<- as(grid, 'SpatialPixels')
 
-kde.href<- kernelUD(dat.spdf, h="href", kern = "bivnorm", grid = grid.spxdf)
-image(kde.href)
-points(ac.coords[,1:2], pch=16, cex=1)
+
