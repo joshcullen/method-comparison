@@ -85,8 +85,13 @@ par(mfrow=c(1,1))
 
 
 ### My Simulation: Only for identifying behaviors ###
-## Uses multistate CVM model
+## Uses multistate CVM model; nu = mean speed; tau = tortuosity or time-scale of autocorr
 set.seed(10)
+
+#define behaviors and randomly sample 50 (for 50 time segments)
+#weight probs so that behavior 1 (Resting) occurs 50%, behavior 2 (ARS) occurs 35%, and behavior 3 (Transit) occurs 15%
+behav<- sample(c(1,2,3), 50, replace = TRUE, prob = c(0.5, 0.35, 0.15))
+nu.vals<- c(1,2.5,10)
 nus <- c(1,2.5,1,10,1)
 taus <- c(1,1,1,10,1)
 Ts <- c(100,50,100,50,100)
@@ -133,3 +138,69 @@ rose.diag(Theta[151:250], bins=8, main="Phase III", prop=2, col=viridis(n=3)[1])
 rose.diag(Theta[251:300], bins=8, main="Phase IV", prop=2, col=viridis(n=3)[3])
 rose.diag(Theta[301:400], bins=8, main="Phase V", prop=2, col=viridis(n=3)[1])
 par(mfrow=c(1,1))
+
+
+
+
+## New method for CVM
+
+set.seed(3)
+
+
+#define behaviors and randomly sample 50 (for 50 time segments)
+#weight probs so that behavior 1 (Resting) occurs 50%, behavior 2 (ARS) occurs 35%, and behavior 3 (Transit) occurs 15%
+
+#create vector of behaviors
+behav<- sample(c(1,2,3), 50, replace = TRUE, prob = c(0.5, 0.35, 0.15))
+table(behav) #check freq
+
+#create vector of speeds per behavior
+nus<- rep(0, length(behav))
+for (i in 1:length(behav)) {
+  if (behav[i] == 1) {
+    nus[i]<- 1  #Rest
+  } else if (behav[i] == 2) {
+    nus[i]<- 2.5  #ARS
+  } else {
+    nus[i]<- 10  #Transit
+  }
+}
+
+
+#create vector of tortuosity per behavior
+taus<- rep(0, length(behav))
+for (i in 1:length(behav)) {
+  if (behav[i] < 3) {
+    taus[i]<- 1  #Rest/ARS
+  } else {
+    taus[i]<- 10  #Transit
+  }
+}
+
+#create vector of behavior duration; set to equal for all segments
+Ts <- rep(50, length(behav))
+
+#Run CVM model
+CVM.sim <- multiCVM(taus, nus, Ts)
+plot(CVM.sim, col = viridis(n=3)[behav])
+
+#calculate and plot mean speeds
+S <- diff(CVM.sim$Z) %>% Mod()
+S<- c(S, NA)
+
+plot.ts(S, ylab = "Step Length")
+
+
+
+# Relative turning angle
+Phi <- diff(CVM.sim$Z) %>% Arg()
+# turning angles
+Phi<- c(NA, Phi)
+
+plot.ts(Phi, ylab = "Turning Angle (rad)")
+
+
+behav.aug<- rep(behav, each=49)  #assign behavior for all obs; not sure why each seg is missing 1 obs
+
+sim_behav<- data.frame(id = 1, dt = 3600, dist = S, rel.angle = Phi, time1 = 1:2450, behav = behav.aug)
+write.csv(sim_behav, "Sim track_behavior.csv", row.names = FALSE)
