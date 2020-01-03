@@ -1,5 +1,32 @@
-#Compare KDE against modeled ACs
+---
+title: "Comparing Measures of Animal Space Use"
+author: "Josh Cullen"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  pdf_document:
+    fig_caption: yes
+    latex_engine: xelatex
+header-includes: \usepackage{float}
+---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+# KDE vs AC model
+
+Kernel density estimation (KDE) is one of the most common tools used to estimate an organism's utilization distribution, or the spatial probability distribution based upon the recorded observations. There are a variety of different methods used to select the smoothing bandwidth of the kernel moved over the area of interest (e.g. reference bandwidth, least-squares cross-validation, direct plug-in), as well as two frequently used kernel shapes to choose from (i.e. bivariate normal, Epanechnikov). KDE can provide a surface that shows the greatest density of observed relocations, but does so irrespective of time where these points were recorded. To circumvent this problem, practitioners often account for changes in space use over time by selecting a time interval to evaluate and grouping the points likewise, such as when comparing interannual or seasonal space use.
+\hfill\break
+
+In our model that identifies activity centers (ACs), discrete locations are estimated from all occupied grid cells used by the organism(s). When multiple individuals are used to estimate ACs, this results in a common set of ACs across the region of interest, which can be further evaluated to determine which ACs are shared between individuals and which may be the most important in terms of their frequency of use. Our model can also determine the most parsimonious number and location of ACs based on observations from all individuals, which can be used to evaluate changes in AC use over time at the desired scale of the user; the temporal scale of interest does not need to be set *a priori* as in KDE. This model is based upon an exponential decay function within a likelihood framework that also uses a truncated stick-breaking (TSB) prior to penalize against greater numbers of identified ACs. Therefore, the user only needs to select the maximum possible number of ACs they would like to estimate.
+\hfill\break
+
+To compare the results of our AC model against KDE, I first analyzed all individuals using each method and plotted the results to compare overall similarities/differences. To compare the utility of our model to evaluate AC use over time, I show daily AC use over time based on our model and then compare seasonal KDE surfaces across all 4 years of data against the associated ACs used during these time periods.
+
+
+# Overall Results
+
+```{r load libraries and data, results='hide'}
 library(tidyverse)
 library(adehabitatHR)
 library(rnaturalearth)
@@ -35,7 +62,9 @@ lakes10<- sf::st_transform(lakes10, crs = "+init=epsg:32617") %>%
 
 nests<- dat %>% group_by(id) %>% dplyr::select(c(id, x, y)) %>% slice(n=1)
 
+```
 
+```{r, fig.align='center', out.width='0.45\\linewidth', fig.pos='H', fig.cap="ACs identified from the mixture model using all 36 snail kites."}
 # ACs
 ggplot() +
   geom_sf(data = fl) +
@@ -50,14 +79,9 @@ ggplot() +
   scale_fill_manual("", values = c(viridis(n=3)[1],"red","grey55")) +
   guides(fill = guide_legend(override.aes = list(shape = c(21,24,21)))) +
   theme_bw()
+```
 
-
-
-
-###########
-### KDE ###
-###########
-
+```{r, fig.align='center', out.width='0.45\\linewidth', fig.pos='H', fig.cap="Utilization distribution of all 36 snail kites calculated by KDE. A bivariate normal kernel using a smoothing bandwidth calculated using direct plug-in was used."}
 ## H plug-in
 dat.coords<- dat[,c("x","y")]
 Hpi.dat<- Hpi(x=dat.coords, nstage = 2)
@@ -76,13 +100,12 @@ ggplot() +
   theme_bw() +
   labs(x="Longitude", y="Latitude")
 
+```
 
 
-############################
-### ACs vs KDE over Time ###
-############################
+# Temporal Analysis of Space Use
 
-
+```{r, fig.align='center', out.width='1.0\\linewidth', fig.pos='H', fig.cap="Daily AC use by all snail kites. Since snail kites were tagged at different times, some individuals contributed a greater number of observations than others."}
 ### ACs
 dat2<- dat
 dat2$date<- as.POSIXct(dat2$date, format = "%Y-%m-%d")
@@ -98,12 +121,9 @@ ggplot() +
         axis.text.x = element_text(size = 14),
         panel.grid = element_blank()) +
   scale_y_continuous(breaks = 1:20)
+```
 
-
-
-
-
-
+```{r}
 ### KDE (by season)
 
 #function to calculate seasons
@@ -129,8 +149,6 @@ grid_5<- raster(extent(min(dat$x-5000), max(dat$x+5000),
 res(grid_5)<- 5000
 proj4string(grid_5)<- CRS("+init=epsg:32617")
 grid_5[]<- 0
-dim(grid_5)  #96 x 52
-
 
 #calculate each kde
 kde_season<- vector("list", 16)
@@ -196,10 +214,11 @@ ac_season<- map_dfr(ac_season, `[`)
 ac_season$season<- factor(ac_season$season, levels = seasons)
 ac_season$year<- factor(ac_season$year, levels = years)
 
-
-
-
 lakes<- as(lakes10, "Spatial") %>% fortify()  #need to convert from sf so it shows up w facet
+
+```
+
+```{r, fig.align='center', fig.width=7, fig.height=8, fig.cap="Seasonal utilization distributions as calculated by KDE. Green circles denote the ACs calculated by the model that were occupied during the given time interval."}
 
 ggplot() +
   geom_sf(data = fl) +
@@ -207,11 +226,12 @@ ggplot() +
   coord_sf(xlim = c(min(dat$x-20000), max(dat$x+20000)),
            ylim = c(min(dat$y-20000), max(dat$y+20000)), expand = FALSE) +
   geom_tile(data=kde_season, aes(x=x, y=y, fill=z), alpha=0.75) +
-  # geom_point(data = ac_season, aes(x, y), color = viridis(n=9)[7], size = 2, pch=1, stroke=0.25) +
+  geom_point(data = ac_season, aes(x, y), color = viridis(n=9)[7], size = 2, pch=1, stroke=0.25) +
   scale_fill_viridis_c("Proportional \nDensity \nEstimate") +
   theme_bw() +
   theme(axis.text = element_blank(), strip.text = element_text(face = "bold")) +
   labs(x="Longitude", y="Latitude") +
   facet_grid(year~season)
+```
 
 
