@@ -1,0 +1,370 @@
+---
+title: "Generation of Simulated Data and Model Accuracy"
+author: "Josh Cullen"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  pdf_document: 
+    fig_caption: yes
+    latex_engine: xelatex
+header-includes:
+  - \usepackage{float}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+# Background
+
+As part of the upcoming manuscript that compares our newly developed method against frequently used methods, we will be testing them using both simulated and empirical data. These tests on simulated tracks will be performed to identify and recover pre-specified activity centers (ACs) and pre-specified behavioral states. There are a wide variety of options available in terms of simulating animal movement, whether based on empirical distributions or by using parametric distributions. In other cases, simulations can be generated from a process model that already has built in constraints (hidden Markov models via the *momentuHMM* package).
+\hfill\break
+
+To make the method comparison as unbiased as possible, I decided to use methods to simulate data that were only based on a correlated random walk (CRW). I initially considered using one of three different R packages to perform these simulations: *adehabitatLT, trajr, waddle*.
+\hfill\break
+
+The *adehabitatLT* package is widely used for evaluating trajectories and also for simulating paths based on empirical distributions of step lengths (SL) and turning angles (TA). However, this package did not have a convenient method for producing multistate trajectories, which would be used to simulate changes in behavior, or for simulating based on a biased CRW (BCRW) that could be used to incorporate attraction to multiple ACs. Additionally, the parametric distributions (SL: chi; TA: wrapped normal) from which these simulated data would be drawn are not used by any other common method for behavior classification. Therefore, this package was not used.
+\hfill\break
+
+The *trajr* package also does not have the capability to generate a multistate trajectory or to include ACs as part of a BRW. Additionally, there is limited control over defining the distribution from which step lengths and turning angles are drawn. Therefore, the *trajr* package was not used.
+\hfill\break
+
+The *waddle* package was used to generate simulated trajectories used to compare first passage time (FPT), behavioral change point analysis (BCPA), Bayesian partitioning of Markov models (BPMM), and multistate random walks (MRW) in the publication by Gurarie et al. (2016). This package provides option for generating simulated data from a BCRW or correlated velocity movement (CVM) model, as well as multiphase extensions of these models. However, there was still limited control over movement parameters and data were returned as complex as opposed to real numbers. Therefore, this package also was not used to simulate animal movement.
+\hfill\break
+
+Instead, I developed my own code to generate a multiphase CRW model of three different behaviors as well as a multiphase BRW that could be more easily controlled and produced locations as real numbers. These models were based upon established CRW and BRW models, but were modified to achieve the desired result.
+
+
+
+# Simulations
+
+## BRW for identifying ACs
+
+First, values will be chosen for the number of observations per time segment (n), the number and location of ACs (Z.centers), the number of phases or time segments (nphases), the initial location (Z0), the shape (a) and scale (b) parameters for a gamma distribution from which to draw step lengths, and the concentration parameter ($\rho$) from which to draw the turning angles:
+
+```{r}
+source('Simulation Functions.R')
+
+library(tidyverse)
+library(circular)
+```
+
+
+
+
+
+## CRW for identifying behaviors
+
+Since our model uses a mixed-membership model to identify the proportion of behaviors within each time segment, I simulated tracks using both hard-clustering and mixed-membership methods to test the model's ability to classify these different types of data. Both simulations required the user to define the length of each time segment (n), provide a vector of the behaviors (behav), a vector of the shape and scale parameters used to generate step lengths (SL.params), a vector of the mean angles and concentration parameters used to generate the turning angles (TA.params), and the initial location (Z0). A gamma distribution was used to generate step lengths while a wrapped Cauchy distribution was used to generate turning angles. For the hard-clustering method, the 'behav' vector is of length equal to the number of time segments where there is a greater probability of being in either a 'resting' or 'exploratory' behavior than in a 'transit' behavior. In the mixed membership model, this first step is the same, but another one is performed within each time segment where the original behavior assigned to each segment has the greatest probability of occurrence compared to the other two.
+\hfill\break
+
+### Hard-clustering
+
+First, I will simulate data using the hard-clustering method for behavior and subsequently run it on the model to evaluate accuracy of behavior classification.
+
+```{r, echo=TRUE}
+#define behaviors and randomly sample 50 (for 50 time segments)
+#weight probs so that behavior 1 (Resting) occurs 50%, behavior 2 (Exploratory) occurs 35%, and behavior 3 (Transit) occurs 15%
+set.seed(1)
+behav<- sample(c(1,2,3), 50, replace = TRUE, prob = c(0.5, 0.35, 0.15))
+n=50
+SL.params<- data.frame(shape=c(0.25, 2, 10), scale = c(1, 1, 1))
+TA.params<- data.frame(mu=c(pi, pi, 0), rho = c(0.8, 0.4, 0.8))
+
+track<- CRW.sim(n=n, behav = behav, SL.params = SL.params, TA.params = TA.params, Z0=c(0,0))
+```
+
+```{r, fig.align='center', fig.width=4, fig.height=6, fig.pos='H', fig.cap="Simulated CRW track with a single behavior assigned for each time segment. The green circle indicates the starting location and the red triangle is the ending location."}
+track$behav<- factor(track$behav)
+levels(track$behav)<- c("Resting","Exploratory","Transit")
+true.brkpts<- which(diff(behav) != 0) * n
+
+# plot that puppy
+ggplot(data = track[-1,], aes(x,y)) +
+  geom_path(color = "gray75") +
+  geom_point(aes(fill=behav), pch = 21, size = 2.5, alpha = 0.7) +
+  geom_point(data = track[1,], aes(x, y), color = "green", pch = 21, size = 3, stroke = 1.25) +
+  geom_point(data = track[nrow(track),], aes(x, y), color = "red", pch = 24, size = 3,
+             stroke = 1.25) +
+  coord_equal() +
+  scale_fill_viridis_d("Behavior") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16)) +
+  guides(fill = guide_legend(label.theme = element_text(size = 12),
+                             title.theme = element_text(size = 14)))
+```
+
+We can also compare the SL and TA distributions among behaviors:
+
+```{r, fig.align='center', fig.width=6, fig.height=4, fig.pos='H', fig.cap="Distributions of step lengths."}
+ggplot(track, aes(SL)) +
+  geom_density(aes(fill=behav), alpha = 0.6, na.rm = T) +
+  scale_fill_viridis_d("Behavior") +
+  theme_bw() +
+  labs(x="\nSL", y="Density\n") +
+  theme(axis.title = element_text(size = 16), axis.text = element_text(size = 12),
+        legend.title = element_text(size = 14), legend.text = element_text(size = 12))
+```
+
+```{r, fig.align='center', fig.width=6, fig.height=4, fig.pos='H', fig.cap="Distributions of turning angles."}
+ggplot(track, aes(TA)) +
+  geom_density(aes(fill=behav), alpha = 0.6, na.rm = T) +
+  scale_fill_viridis_d("Behavior") +
+  theme_bw() +
+  labs(x="\nTA", y="Density\n") +
+  theme(axis.title = element_text(size = 16), axis.text = element_text(size = 12),
+        legend.title = element_text(size = 14), legend.text = element_text(size = 12))
+```
+
+From this simulated track, we can run the time segmentation algorithm to discern the number and locations of the breakpoints in the time series of SL and TA. These breakpoints are lined up with the data, as well as compared against the true breakpoints:
+
+```{r, results='hide'}
+setwd("~/Documents/Snail Kite Project/Data/R Scripts/git_segmentation_behavior")
+
+
+library(tidyverse)
+library(tictoc)
+library(furrr)
+library(viridis)
+library(lubridate)
+
+
+source('gibbs functions2.R')
+source('helper functions.R')
+source('gibbs sampler2.R')
+
+#load and manipulate data
+dat<- track
+dat$dt<- 3600
+dat$id<- 1
+
+dat.list<- df.to.list(dat=dat)
+names(dat)[3:4]<- c("dist","rel.angle")
+behav.list<- behav.prep(dat=dat, tstep = 3600)  #add move params and filter by 3600 s interval
+
+## Run RJMCMC
+ngibbs = 10000
+dat.res<- behavior_segment(dat = behav.list, ngibbs = ngibbs)
+#takes 3.5 min
+```
+
+
+```{r, fig.align='center', fig.width=6, fig.height=4, fig.pos='H', fig.cap="Heatmap showing step lengths and turning angles for each observation over time as characterized by previous binning decisions. Vertical green lines indicate breakpoints determined by the model."}
+
+##Determine maximum likelihood (ML) for selecting breakpoints
+ML<- apply(dat.res$LML, 1, function(x) getML(dat = x, nburn = 500))
+brkpts<- getBreakpts(dat = dat.res$brkpts, ML = ML, brk.cols = 99)  #brk.cols is max matrix cols
+
+model.brkpts<- na.omit(t(brkpts[-1])) %>% as.vector()
+
+
+## Heatmaps
+plot.heatmap(data = behav.list, nbins = c(6,8), brkpts = brkpts, dat.res = dat.res, type = "behav")
+```
+
+
+```{r, fig.align='center', fig.width=6, fig.height=4, fig.pos='H', fig.cap="The model identifies fewer breakpoints than the true breakpoints. The locations of the modeled breakpoints are very similar if not identical to the true positions. However, some modeled breakpoints appear to be redundant."}
+## Compare True vs Modeled Breakpoints
+all.brkpts<- data.frame(brks = c(true.brkpts, model.brkpts), type = rep(c("True","Model"),
+                                                                        c(length(true.brkpts),
+                                                                          length(model.brkpts))))
+
+ggplot(all.brkpts, aes(x=brks, y=type)) +
+  geom_point(size=2) +
+  theme_bw() +
+  labs(x="Time", y="Type") +
+  theme(axis.title = element_text(size = 16), axis.text = element_text(size = 12))
+
+dat_out<- map(behav.list, assign.time.seg) %>% map_dfr(`[`)  #assign time seg and make as DF
+```
+\hfill\break
+
+At a quick glance, the segmentation appears to do a good job compared to the true breakpoints. Next, I will run the latent Dirichlet allocation (LDA) model to cluster the time segments into separate behaviors. Following this analysis, I will determine the likely number of behavioral states from the posterior distribution, assign behavioral states to each cluster, and plot these over time and geographic space.
+
+```{r, warning=FALSE, results='hide'}
+#######################
+#### Run LDA Model ####
+#######################
+
+setwd("~/Documents/Snail Kite Project/Data/R Scripts/git_LDA_behavior")
+
+
+library('MCMCpack')
+library('Rcpp')
+library(progress)
+library(tidyverse)
+library(lubridate)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(sf)
+library(viridis)
+
+
+source('LDA_behavior_function.R')
+source('gibbs sampler.R')
+source('helper functions.R')
+sourceCpp('aux1.cpp')
+
+
+#get data
+dat.list<- df.to.list(dat_out)  #for later behavioral assignment
+obs<- get.summary.stats_behav(dat_out)  #to run Gibbs sampler on
+
+
+#prepare for Gibbs sampler
+ngibbs=1000
+nburn=ngibbs/2
+ind1=grep('y1',colnames(obs))
+ind2=grep('y2',colnames(obs))
+nmaxclust=max(length(ind1),length(ind2))-1  #max possible is 1 fewer than largest number of bins
+
+#run Gibbs sampler
+set.seed(1)
+res=LDA_behavior_gibbs(dat=obs, gamma1=gamma1, alpha=alpha,
+                       ngibbs=ngibbs, nmaxclust=nmaxclust,
+                       nburn=nburn)
+```
+
+```{r, fig.align='center', fig.width=6, fig.height=4, fig.pos='H'}
+#Extract and plot proportions of behaviors per time segment
+theta.post<- res$theta[(nburn+1):ngibbs,]  #extract samples from posterior
+theta.estim<- theta.post %>% apply(2, mean) %>% matrix(nrow(obs), nmaxclust) #calc mean of posterior
+boxplot(theta.estim, xlab="Behavior", ylab="Probability of Behavior Occurrence")
+```
+
+It looks like there are likely only three behaviors being identified, but we can look at the numbers and compare this to the true proportions of the simulated data.
+
+Model results:
+```{r}
+#Determine proportion of behaviors (across all time segments)
+#Possibly set threshold below which behaviors are excluded
+round(apply(theta.estim, 2, sum)/nrow(theta.estim), digits = 3)
+```
+
+True proportions of behaviors:
+```{r}
+#true proportions of behavioral states
+table(behav)/50
+```
+
+
+The modeled proportions appear to be slightly skewed compared to the true values used to generate the simulation. Next, let's look at the histograms for each of these top three clusters/behaviors from the model and assign a state to each:
+
+```{r, fig.align='center', fig.width=6, fig.height=4, fig.pos='H', fig.cap="Distributions for the SL and TA of each of the top three clusters from the LDA model."}
+## Viz histograms from model
+behav.res<- get_behav_hist(res)
+behav.res<- behav.res[behav.res$behav <=3,]  #only select the top 3 behaviors
+
+#Plot histograms of proportion data; order color scale from slow to fast
+ggplot(behav.res, aes(x = bin, y = prop, fill = as.factor(behav))) +
+  geom_bar(stat = 'identity') +
+  labs(x = "\nBin", y = "Proportion\n") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16), axis.text.y = element_text(size = 14),
+        axis.text.x.bottom = element_text(size = 12),
+        strip.text = element_text(size = 14), strip.text.x = element_text(face = "bold")) +
+  scale_fill_manual(values = viridis(n=3)[c(2,1,3)], guide = F) +
+  facet_grid(param ~ behav, scales = "fixed")
+```
+
+These histograms are markedly different in both their SL and TA and appear to show 'exploratory', 'resting', and 'transit' behaviors, respectively. Now, we can investigate how these behavioral estimates match with the true behaviors from the hard-clustering simulation:
+
+```{r, fig.align='center', fig.width=6, fig.height=4, fig.pos='H', fig.cap="Each of these panels shows a separate behavior, where the proportion of the true state occurrence is indicated by the thinner line and the modeled proportion is denoted by the thicker line."}
+## Viz behavior over time
+#Assign behaviors (via theta) to each time segment
+theta.estim<- apply(theta.estim[,1:3], 1, function(x) x/sum(x)) %>% t()  #normalize probs for only first 3 behaviors being used
+theta.estim<- data.frame(id = obs$id, tseg = obs$tseg, theta.estim)
+names(theta.estim)<- c("id", "tseg", "Resting","Exploratory","Transit")  #define behaviors
+nobs<- data.frame(id = obs$id, tseg = obs$tseg, n = apply(obs[,11:16], 1, sum)) #calc obs per tseg using SL bins (more reliable than TA)
+
+#Create augmented matrix by replicating rows (tsegs) according to obs per tseg
+theta.estim2<- aug_behav_df(dat = dat_out[-1,] %>% mutate(date=1:nrow(dat_out[-1,])),
+                            theta.estim = theta.estim, nobs = nobs)
+
+#Change into long format
+theta.estim.long<- theta.estim2 %>% gather(key, value, -id, -tseg, -time1, -date)
+names(theta.estim.long)[5:6]<- c("behavior","prop")
+theta.estim.long$behavior<- factor(theta.estim.long$behavior,
+                                   levels = c("Resting","Exploratory","Transit"))
+
+#generate long form of true behavior
+true.behavior<- matrix(0, 2500, 3) %>% data.frame(., time1 = 1:2500)
+names(true.behavior)[1:3]<- c("Resting","Exploratory","Transit")
+ind<- rep(behav, each = n)
+for(i in 1:nrow(true.behavior)) {
+  true.behavior[i, ind[i]]<- 1
+}
+true.behavior.long<- true.behavior %>% gather(key, value, -time1)
+names(true.behavior.long)[2:3]<- c("behavior","prop")
+true.behavior.long$behavior<- factor(true.behavior.long$behavior,
+                                   levels = c("Resting","Exploratory","Transit"))
+
+ggplot(theta.estim.long) +
+  geom_line(aes(x=time1, y=prop, color = behavior), size = 1) +
+  geom_line(data = true.behavior.long, aes(x=time1, y=prop, color=behavior), size = 0.5) +
+  labs(x = "\nObservation", y = "Proportion of Behavior\n") +
+  scale_color_viridis_d("Behavior") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16), axis.text.y = element_text(size = 14),
+        axis.text.x.bottom = element_text(size = 12), strip.text = element_text(size = 12, face = "bold")) +
+  facet_wrap(~behavior)
+```
+
+
+Results for all three behaviors show that the model does a pretty good job at estimating the proportion of each behavior across all time segments. However, it appears that the 'transit' behavior was assigned properly most often compared to the 'resting' and 'exploratory' behaviors. This could be a result of these behaviors being relatively similar in their SL and TA.
+
+```{r, fig.align='center', fig.width=4, fig.height=6, fig.pos='H', fig.cap="Simulated hard-clustering CRW track with behaviors estimated by the model. The green circle indicates the starting location and the red triangle is the ending location."}
+dat2<- assign_behav(dat.list = dat.list, theta.estim2 = theta.estim2)
+dat2$behav<- factor(dat2$behav, levels = c("Resting","Exploratory","Transit"))
+
+ggplot() +
+  geom_path(data = dat2, aes(x=x, y=y), color="gray60", size=0.25) +
+  geom_point(data = dat2[-nrow(dat2),], aes(x, y, fill=behav), size=2.5, pch=21,
+             alpha=dat2$prop[-nrow(dat2)]) +
+  scale_fill_viridis_d("Behavior") +
+  geom_point(data = dat2[1,], aes(x, y), color = "green", pch = 21, size = 3, stroke = 1.25) +
+  geom_point(data = dat2[nrow(dat2),], aes(x, y), color = "red", pch = 24, size = 3,
+                 stroke = 1.25) +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16)) +
+  guides(fill = guide_legend(label.theme = element_text(size = 12),
+                             title.theme = element_text(size = 14))) +
+  coord_equal()
+```
+
+Outwardly, the behavioral states on this track as estimated by the model look almost identical to the original simulation. To quantify the model's accuracy, we will directly compare the behavioral estimates for all time segments of the track.
+
+```{r, results='hide'}
+##############################
+### Overall Model Accuracy ###
+##############################
+
+true.b<- ind
+model.b<- as.numeric(dat2$behav[-nrow(dat2)])
+
+(which(true.b == model.b) %>% length()) / length(true.b)
+# 92.4% accuracy when including all different behaviors together
+
+
+## For 'Resting' behavior
+true.b_rest<- which(true.b == 1)
+model.b_rest<- which(model.b == 1)
+(which(true.b_rest %in% model.b_rest) %>% length()) / length(true.b_rest)
+# 99.0% accuracy for 'Resting'
+
+
+## For 'Exploratory' behavior
+true.b_exp<- which(true.b == 2)
+model.b_exp<- which(model.b == 2)
+(which(true.b_exp %in% model.b_exp) %>% length()) / length(true.b_exp)
+# 83.0% accuracy for 'Exploratory'
+
+
+## For 'Transit' behavior
+true.b_transit<- which(true.b == 3)
+model.b_transit<- which(model.b == 3)
+(which(true.b_transit %in% model.b_transit) %>% length()) / length(true.b_transit)
+# 99.7% accuracy for 'Exploratory'
+
+```
+
+The overall accuracy of the model was 92.4% (including all behaviors together). When breaking this down by behavior, the 'exploratory' behavior was identified with the least accuracy (83.0% accurate), which was still quite high. The 'resting' behavior was the next most accurate (99.0%) followed by the 'transit' behavior (99.7%). It appears that the 'resting' and 'transit' behaviors were easily identified since they were much different from each other and represented extremes. The 'exploratory' behavior had a different SL distribution from the other two, but had a similar TA distribution as the 'resting' behavior. This resulted in some segments being classified as 'resting' part of the time instead, which likely reduced the overall accuracy of behavior classification. However, accuracy of the model is still very high.
