@@ -175,9 +175,9 @@ names(dat)[3:4]<- c("dist","rel.angle")
 behav.list<- behav.prep(dat=dat, tstep = 3600)  #add move params and filter by 3600 s interval
 
 ## Run RJMCMC
-ngibbs = 10000
+ngibbs = 40000
 dat.res<- behavior_segment(dat = behav.list, ngibbs = ngibbs)
-#takes 3 min
+#takes 13.5 min for 40000 iterations
 
 
 ## Traceplots
@@ -206,7 +206,9 @@ all.brkpts<- data.frame(brks = c(true.brkpts, model.brkpts), type = rep(c("True"
 
 ggplot(all.brkpts, aes(x=brks, y=type)) +
   geom_point(size=2) +
-  theme_bw()
+  theme_bw() +
+  labs(x="Time", y="Type") +
+  theme(axis.title = element_text(size = 16), axis.text = element_text(size = 10))
 
 dat_out<- map(behav.list, assign.time.seg) %>% map_dfr(`[`)  #assign time seg and make as DF
 
@@ -262,7 +264,7 @@ plot(res$loglikel, type='l')
 #Extract and plot proportions of behaviors per time segment
 theta.post<- res$theta[(nburn+1):ngibbs,]  #extract samples from posterior
 theta.estim<- theta.post %>% apply(2, mean) %>% matrix(nrow(obs), nmaxclust) #calc mean of posterior
-boxplot(theta.estim, xlab="Behavior", ylab="Probability of Behavior Occurrence")
+boxplot(theta.estim, xlab="Behavior", ylab="Proportion of Total Behavior")
 
 #Determine proportion of behaviors (across all time segments)
 #Possibly set threshold below which behaviors are excluded
@@ -293,7 +295,7 @@ ggplot(behav.res, aes(x = bin, y = prop, fill = as.factor(behav))) +
 #Assign behaviors (via theta) to each time segment
 theta.estim<- apply(theta.estim[,1:3], 1, function(x) x/sum(x)) %>% t()  #normalize probs for only first 3 behaviors being used
 theta.estim<- data.frame(id = obs$id, tseg = obs$tseg, theta.estim)
-names(theta.estim)<- c("id", "tseg", "Transit","Exploratory","Resting")  #define behaviors
+names(theta.estim)<- c("id", "tseg","Transit","Exploratory","Resting")  #define behaviors
 nobs<- data.frame(id = obs$id, tseg = obs$tseg, n = apply(obs[,11:16], 1, sum)) #calc obs per tseg using SL bins (more reliable than TA)
 
 #Create augmented matrix by replicating rows (tsegs) according to obs per tseg
@@ -309,9 +311,14 @@ theta.estim.long$behavior<- factor(theta.estim.long$behavior,
 #generate long form of true behavior
 true.behavior<- matrix(0, 2500, 3) %>% data.frame(., time1 = 1:2500)
 names(true.behavior)[1:3]<- c("Resting","Exploratory","Transit")
-ind<- rep(behav, each = 50)
-for(i in 1:nrow(true.behavior)) {
-  true.behavior[i, ind[i]]<- 1
+tseg<- rep(1:50, each = 50)
+tmp<- data.frame(behav = behav.full, tseg = tseg)
+for(i in 1:length(behav)) {
+  tmp1<- tmp %>% filter(tseg == i) %>% dplyr::select(behav) %>% table()/length(behav)
+  mat<- matrix(0, 1, 3)
+  mat[,as.numeric(names(tmp1))]<- tmp1
+  mat1<- matrix(mat, 50, 3, byrow = T)
+  true.behavior[which(tmp$tseg == i), 1:3]<- mat1
 }
 true.behavior.long<- true.behavior %>% gather(key, value, -time1)
 names(true.behavior.long)[2:3]<- c("behavior","prop")
@@ -322,7 +329,7 @@ ggplot(theta.estim.long) +
   geom_line(aes(x=time1, y=prop, color = behavior), size = 1) +
   geom_line(data = true.behavior.long, aes(x=time1, y=prop, color=behavior), size = 0.5) +
   labs(x = "\nObservation", y = "Proportion of Behavior\n") +
-  scale_color_viridis_d("Behavior") +
+  scale_color_viridis_d("Behavior", guide=F) +
   theme_bw() +
   theme(axis.title = element_text(size = 16), axis.text.y = element_text(size = 14),
         axis.text.x.bottom = element_text(size = 12)) +
@@ -357,47 +364,24 @@ true.b.coarse<- ind
 model.b<- as.numeric(dat2$behav[-nrow(dat2)])
 
 (which(true.b.coarse == model.b) %>% length()) / length(true.b.coarse)
-# 74.5% accuracy when including all different behaviors together at coarse scale
-
-(which(behav.full == model.b) %>% length()) / length(behav.full)
-# 63.9% accuracy when including all different behaviors together at fine scale
-
+# 82.0% accuracy when including all different behaviors together at coarse scale
 
 
 ## For 'Resting' behavior
 true.b.coarse_rest<- which(true.b.coarse == 1)
 model.b_rest<- which(model.b == 1)
 (which(true.b.coarse_rest %in% model.b_rest) %>% length()) / length(true.b.coarse_rest)
-# 82.3% accuracy for 'Resting' at coarse scale
-
-true.b.fine_rest<- which(behav.full == 1)
-model.b_rest<- which(model.b == 1)
-(which(true.b.fine_rest %in% model.b_rest) %>% length()) / length(true.b.fine_rest)
-# 73.8% accuracy for 'Resting' at fine scale
-
+# 88.6% accuracy for 'Resting' at coarse scale
 
 ## For 'Exploratory' behavior
 true.b.coarse_exp<- which(true.b.coarse == 2)
 model.b_exp<- which(model.b == 2)
 (which(true.b.coarse_exp %in% model.b_exp) %>% length()) / length(true.b.coarse_exp)
-# 61.8% accuracy for 'Exploratory' at coarse scale
-
-true.b.fine_exp<- which(behav.full == 2)
-model.b_exp<- which(model.b == 2)
-(which(true.b.fine_exp %in% model.b_exp) %>% length()) / length(true.b.fine_exp)
-# 53.7% accuracy for 'Exploratory' at fine scale
-
+# 64.8% accuracy for 'Exploratory' at coarse scale
 
 ## For 'Transit' behavior
 true.b.coarse_transit<- which(true.b.coarse == 3)
 model.b_transit<- which(model.b == 3)
 (which(true.b.coarse_transit %in% model.b_transit) %>% length()) / length(true.b.coarse_transit)
-# 82.3% accuracy for 'Transit' at coarse scale
+# 98.5% accuracy for 'Transit' at coarse scale
 
-true.b.fine_transit<- which(behav.full == 3)
-model.b_transit<- which(model.b == 3)
-(which(true.b.fine_transit %in% model.b_transit) %>% length()) / length(true.b.fine_transit)
-# 63.9% accuracy for 'Transit' at fine scale
-
-
-# Similar to the hard-clustering simulation, the 'resting' and 'transit' behaviors were classified with much greater accuracy compared to that for 'resting' behavior. It is unclear exactly why this happened, but there still appears to be some trouble with the proper classification of the 'resting' and 'exploratory' behaviors since they have similar distributions for SL and TA. Additionally, the complication of having multiple behavioral states within each time segment likely increased difficulty in the accurate classification of behavior. Although overall model accuracy was lower for the mixed-membership compared to the hard-clustering simulation (74.5% vs 92.4%), accuracy for the 'resting' and 'transit' behaviors in the mixed membership simulation (82.3% for both) were still relatively high, but still lower than that from the hard-clustering simulation (99.0% and 99.7%, respectively). When comparing the coarse (segment) and fine (observation) scales of classified behavior from the mixed membership simulation, the coarse scale always returned greater accuracy of estimation for each of the 3 behaviors. This may be a result of the model classifying whole time segments as opposed to individual observations.

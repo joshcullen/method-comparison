@@ -325,7 +325,9 @@ all.brkpts<- data.frame(brks = c(true.brkpts, model.brkpts), type = rep(c("True"
 
 ggplot(all.brkpts, aes(x=brks, y=type)) +
   geom_point(size=2) +
-  theme_bw()
+  theme_bw() +
+  labs(x="Time", y="Type") +
+  theme(axis.title = element_text(size = 16), axis.text = element_text(size = 10))
 
 dat_out<- map(behav.list, assign.time.seg) %>% map_dfr(`[`)  #assign time seg and make as DF
 
@@ -377,7 +379,7 @@ plot(res$loglikel, type='l')
 #Extract and plot proportions of behaviors per time segment
 theta.post<- res$theta[(nburn+1):ngibbs,]  #extract samples from posterior
 theta.estim<- theta.post %>% apply(2, mean) %>% matrix(nrow(obs), nmaxclust) #calc mean of posterior
-boxplot(theta.estim, xlab="Behavior", ylab="Probability of Behavior Occurrence")
+boxplot(theta.estim, xlab="Behavior", ylab="Proportion of Total Behavior")
 
 #Determine proportion of behaviors (across all time segments)
 #Possibly set threshold below which behaviors are excluded
@@ -399,7 +401,7 @@ ggplot(behav.res, aes(x = bin, y = prop, fill = as.factor(behav))) +
   theme(axis.title = element_text(size = 16), axis.text.y = element_text(size = 14),
         axis.text.x.bottom = element_text(size = 12),
         strip.text = element_text(size = 14), strip.text.x = element_text(face = "bold")) +
-  scale_fill_manual(values = viridis(n=3)[c(1,3,2)], guide = F) +
+  scale_fill_manual(values = viridis(n=3), guide = F) +
   facet_grid(param ~ behav, scales = "fixed")
 
 
@@ -438,7 +440,7 @@ ggplot(theta.estim.long) +
   geom_line(aes(x=time1, y=prop, color = behavior), size = 1) +
   geom_line(data = true.behavior.long, aes(x=time1, y=prop, color=behavior), size = 0.5) +
   labs(x = "\nObservation", y = "Proportion of Behavior\n") +
-  scale_color_viridis_d("Behavior") +
+  scale_color_viridis_d("Behavior", guide = F) +
   theme_bw() +
   theme(axis.title = element_text(size = 16), axis.text.y = element_text(size = 14),
         axis.text.x.bottom = element_text(size = 12)) +
