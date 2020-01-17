@@ -53,7 +53,7 @@ CRW.sim=function(n, behav, SL.params, TA.params, Z0) {
   X <- c(Z0[1], Z0[1] + cumsum(dX))
   Y <- c(Z0[2], Z0[2] + cumsum(dY))
   track<- data.frame(x = X, y = Y, SL = c(NA,SL), TA = c(NA, TA),
-                     behav = as.factor(c(NA, rep(behav, each=n))))
+                     true.behav = as.factor(c(NA, rep(behav, each=n))))
   
   track
 }
@@ -107,7 +107,7 @@ BRW.sim=function (n = 50, a, b, Z.center = c(0,0), Z0 = c(3,4), rho) {
     theta <- rwrappedcauchy(1, mu = circular(mu), rho = rho) %>% as.numeric()
     
     # new step
-    dist<- rweibull(1, a, b)  #step length
+    dist<- rgamma(1, a, b)  #step length
     dx <- dist * cos(theta)
     dy <- dist * sin(theta)
     
@@ -130,32 +130,32 @@ multiBRW.sim=function (Z0, Z.centers, n, nphases, a, b, rho, ...) {
   Z.list <- list()
   Z.centers<- as.matrix(Z.centers)
   
+  #for visiting each Z.center (AC) once depending on nphases
+  if (nphases > nrow(Z.centers) & nphases %% nrow(Z.centers) == 0) {
+    
+    fold<- ceiling(nphases / nrow(Z.centers))  #number of times to sample
+    ind<- c(sample(x = nrow(Z.centers), size = nrow(Z.centers), replace = FALSE),
+            rep(sample(x = nrow(Z.centers), size = nrow(Z.centers), replace = TRUE), fold-1))
+    
+  } else if (nphases > nrow(Z.centers) & nphases %% nrow(Z.centers) != 0) {
+    
+    fold<- ceiling(nphases / nrow(Z.centers))  #number of times to sample
+    tmp<- nphases %% nrow(Z.centers)  #remainder
+    ind<- c(sample(x = nrow(Z.centers), size = nrow(Z.centers), replace = FALSE),
+            rep(sample(x = nrow(Z.centers), size = nrow(Z.centers), replace = TRUE), fold-2),
+            sample(x = nrow(Z.centers), size = tmp, replace = TRUE))
+    
+  } else {
+    
+    ind<- sample(x = nrow(Z.centers), size = nphases, replace = FALSE)
+    
+  }
+  
   for (i in 1:nphases) {
     if (i == 1) {
       Z0 = Z0
     } else {
       Z0 = Z.list[[i - 1]][n,] %>% as.numeric()
-    }
-    
-    #for visiting each Z.center (AC) once depending on nphases
-    if (nphases > nrow(Z.centers) & nphases %% nrow(Z.centers) == 0) {
-      
-      fold<- ceiling(nphases / nrow(Z.centers))  #number of times to sample
-      ind<- c(sample(x = nrow(Z.centers), size = nrow(Z.centers), replace = FALSE),
-              rep(sample(x = nrow(Z.centers), size = nrow(Z.centers), replace = TRUE), fold-1))
-      
-    } else if (nphases > nrow(Z.centers) & nphases %% nrow(Z.centers) != 0) {
-      
-      fold<- ceiling(nphases / nrow(Z.centers))  #number of times to sample
-      tmp<- nphases %% nrow(Z.centers)  #remainder
-      ind<- c(sample(x = nrow(Z.centers), size = nrow(Z.centers), replace = FALSE),
-              rep(sample(x = nrow(Z.centers), size = nrow(Z.centers), replace = TRUE), fold-2),
-              sample(x = nrow(Z.centers), size = tmp, replace = TRUE))
-      
-    } else {
-      
-      ind<- sample(x = nrow(Z.centers), size = nphases, replace = FALSE)
-      
     }
     
     Z.list[[i]] <- BRW.sim(n = n, a = a, b = b, 

@@ -7,102 +7,57 @@
 library(tidyverse)
 library(circular)
 
+source('Simulation Functions.R')
+
 ### Simulate full track ###
 
 #define behaviors and randomly sample 50 (for 50 time segments)
 #weight probs so that behavior 1 (Resting) occurs 50%, behavior 2 (Exploratory) occurs 35%, and behavior 3 (Transit) occurs 15%
 
-set.seed(4)
+set.seed(2)
 
 #create vector of dominant behaviors per time segment (50 segments)
 behav<- sample(c(1,2,3), 50, replace = TRUE, prob = c(0.5, 0.35, 0.15))
 table(behav) #check freq
 
-#create vector of behaviors within each time segment
+#randomly choose 3 segments of each behavior to be 'pure' instead of mixed
+behav1.pure<- sample(which(behav==1), 3, replace = FALSE)
+behav2.pure<- sample(which(behav==2), 3, replace = FALSE)
+behav3.pure<- sample(which(behav==3), 3, replace = FALSE)
+
+pure<- c(behav1.pure, behav2.pure, behav3.pure) %>% sort()
+
+
+#create vector of behaviors within each time segment (duration of 100 steps)
 behav.full<- vector("list", length(behav))
 for (i in 1:length(behav)) {
-  if (behav[i] == 1) {
-    behav.full[[i]]<- sample(c(1,2,3), 50, replace = TRUE, prob = c(0.8, 0.1, 0.1))
+  if (i %in% pure) {
+    behav.full[[i]]<- rep(behav[i], 100)
+  }else if (behav[i] == 1) {
+    behav.full[[i]]<- sample(c(1,2,3), 100, replace = TRUE, prob = c(0.8, 0.1, 0.1))
   } else if (behav[i] == 2) {
-    behav.full[[i]]<- sample(c(1,2,3), 50, replace = TRUE, prob = c(0.1, 0.8, 0.1))
+    behav.full[[i]]<- sample(c(1,2,3), 100, replace = TRUE, prob = c(0.1, 0.8, 0.1))
   } else if (behav[i] == 3) {
-    behav.full[[i]]<- sample(c(1,2,3), 50, replace = TRUE, prob = c(0.1, 0.1, 0.8))
+    behav.full[[i]]<- sample(c(1,2,3), 100, replace = TRUE, prob = c(0.1, 0.1, 0.8))
   }
 }
 behav.full<- unlist(behav.full)
 
 SL.params<- data.frame(shape=c(0.25, 2, 10), scale = c(1, 1, 1))
-TA.params<- data.frame(mu=c(pi, pi, 0), rho = c(0.8, 0.4, 0.8))
+TA.params<- data.frame(mu=c(pi, pi, 0), rho = c(0.8, 0, 0.8))
 
 
-#Simulation function
-CRW.sim=function(n, behav, SL.params, TA.params, Z0) {  
-  #n=duration of each randomly sampled state
-  #behav=vector of behavioral states
-  #SL.params=df of shape and scale params
-  #TA.params=df of mean TA and concen. param
-  #Z0=initial location
-  
-  #uses gamma and wrapped cauchy distribs
-  #behaviors params must be in order
-  #for simulating w/ 3 behavioral states
-  
-  #create vector of step lengths
-  SL<- vector("list", length(behav))
-  for (i in 1:length(behav)) {
-    if (behav[i] == 1) {
-      SL[[i]]<- rgamma(n, shape = SL.params[1,1], scale = SL.params[1,2])  #Rest
-    } else if (behav[i] == 2) {
-      SL[[i]]<- rgamma(n, shape = SL.params[2,1], scale = SL.params[2,2])  #Exploratory
-    } else {
-      SL[[i]]<- rgamma(n, shape = SL.params[3,1], scale = SL.params[3,2])  #Transit
-    }
-  }
-  SL<- unlist(SL)
-  
-  
-  #create vector of turning angles
-  TA<- vector("list", length(behav))
-  for (i in 1:length(behav)) {
-    if (behav[i] == 1) {
-      TA[[i]]<- rwrappedcauchy(n, mu=circular(TA.params[1,1]), rho=TA.params[1,2]) %>%
-        ifelse(. > pi, .-(2*pi), .)  #Rest
-    } else if (behav[i] == 2) {
-      TA[[i]]<- rwrappedcauchy(n, mu=circular(TA.params[2,1]), rho=TA.params[2,2]) %>%
-        ifelse(. > pi, .-(2*pi), .)  #Exploratory
-    } else {
-      TA[[i]]<- rwrappedcauchy(n, mu=circular(TA.params[3,1]), rho=TA.params[3,2]) %>%
-        ifelse(. > pi, .-(2*pi), .)  #Transit
-    }
-  }
-  TA<- unlist(TA)
-  
-  
-  # cumulative angle
-  Phi <- cumsum(TA)
-  
-  # step length components
-  dX <- SL*cos(Phi)
-  dY <- SL*sin(Phi)
-  
-  # actual X-Y values
-  X <- c(Z0[1], Z0[1] + cumsum(dX))
-  Y <- c(Z0[2], Z0[2] + cumsum(dY))
-  track<- data.frame(x = X, y = Y, SL = c(NA,SL), TA = c(NA, TA),
-                     behav = as.factor(c(NA, rep(behav, each=n))))
-  
-  track
-}
-
+#simulate track
+#n=duration of each observation (behav.full), behav is a vector of behaviors, SL.params and TA.params are DFs of the necessary params from which to generate distributions for SL and TA from gamma and wrapped cauchy distribs, and Z0 is the initial location
 
 track<- CRW.sim(n=1, behav = behav.full, SL.params = SL.params, TA.params = TA.params, Z0=c(0,0))
 names(track)[5]<- "behav_fine"
 track$behav_fine<- factor(track$behav)
 levels(track$behav_fine)<- c("Resting","Exploratory","Transit")
-track<- track %>% mutate(behav_coarse = c(NA, rep(behav, each=50)) %>% factor())
+track<- track %>% mutate(behav_coarse = c(NA, rep(behav, each=100)) %>% factor())
 levels(track$behav_coarse)<- c("Resting","Exploratory","Transit")
 
-true.brkpts<- which(diff(behav) != 0) * 50
+true.brkpts<- which(diff(behav) != 0) * 100
 
 
 # plot that puppy
@@ -177,7 +132,7 @@ behav.list<- behav.prep(dat=dat, tstep = 3600)  #add move params and filter by 3
 ## Run RJMCMC
 ngibbs = 40000
 dat.res<- behavior_segment(dat = behav.list, ngibbs = ngibbs)
-#takes 13.5 min for 40000 iterations
+#takes 17 min for 40000 iterations
 
 
 ## Traceplots
@@ -286,7 +241,7 @@ ggplot(behav.res, aes(x = bin, y = prop, fill = as.factor(behav))) +
   theme(axis.title = element_text(size = 16), axis.text.y = element_text(size = 14),
         axis.text.x.bottom = element_text(size = 12),
         strip.text = element_text(size = 14), strip.text.x = element_text(face = "bold")) +
-  scale_fill_manual(values = viridis(n=3)[3:1], guide = F) +
+  scale_fill_manual(values = viridis(n=3)[c(2,1,3)], guide = F) +
   facet_grid(param ~ behav, scales = "fixed")
 
 
@@ -295,7 +250,7 @@ ggplot(behav.res, aes(x = bin, y = prop, fill = as.factor(behav))) +
 #Assign behaviors (via theta) to each time segment
 theta.estim<- apply(theta.estim[,1:3], 1, function(x) x/sum(x)) %>% t()  #normalize probs for only first 3 behaviors being used
 theta.estim<- data.frame(id = obs$id, tseg = obs$tseg, theta.estim)
-names(theta.estim)<- c("id", "tseg","Transit","Exploratory","Resting")  #define behaviors
+names(theta.estim)<- c("id", "tseg","Exploratory","Resting","Transit")  #define behaviors
 nobs<- data.frame(id = obs$id, tseg = obs$tseg, n = apply(obs[,11:16], 1, sum)) #calc obs per tseg using SL bins (more reliable than TA)
 
 #Create augmented matrix by replicating rows (tsegs) according to obs per tseg
@@ -309,15 +264,15 @@ theta.estim.long$behavior<- factor(theta.estim.long$behavior,
                                    levels = c("Resting","Exploratory","Transit"))
 
 #generate long form of true behavior
-true.behavior<- matrix(0, 2500, 3) %>% data.frame(., time1 = 1:2500)
+true.behavior<- matrix(0, 5000, 3) %>% data.frame(., time1 = 1:5000)
 names(true.behavior)[1:3]<- c("Resting","Exploratory","Transit")
-tseg<- rep(1:50, each = 50)
+tseg<- rep(1:50, each = 100)
 tmp<- data.frame(behav = behav.full, tseg = tseg)
 for(i in 1:length(behav)) {
-  tmp1<- tmp %>% filter(tseg == i) %>% dplyr::select(behav) %>% table()/length(behav)
+  tmp1<- tmp %>% filter(tseg == i) %>% dplyr::select(behav) %>% table()/100
   mat<- matrix(0, 1, 3)
   mat[,as.numeric(names(tmp1))]<- tmp1
-  mat1<- matrix(mat, 50, 3, byrow = T)
+  mat1<- matrix(mat, 100, 3, byrow = T)
   true.behavior[which(tmp$tseg == i), 1:3]<- mat1
 }
 true.behavior.long<- true.behavior %>% gather(key, value, -time1)
@@ -341,7 +296,7 @@ dat2$behav<- factor(dat2$behav, levels = c("Resting","Exploratory","Transit"))
 
 ggplot() +
   geom_path(data = dat2, aes(x=x, y=y), color="gray60", size=0.25) +
-  geom_point(data = dat2[-nrow(dat2),], aes(x, y, fill=behav), size=2.5, pch=21,
+  geom_point(data = dat2[-1,], aes(x, y, fill=behav), size=2.5, pch=21,
              alpha=dat2$prop[-nrow(dat2)]) +
   scale_fill_viridis_d("Behavior") +
   geom_point(data = dat2[1,], aes(x, y), color = "green", pch = 21, size = 3, stroke = 1.25) +
@@ -360,28 +315,28 @@ ggplot() +
 ### Overall Model Accuracy ###
 ##############################
 
-true.b.coarse<- ind
-model.b<- as.numeric(dat2$behav[-nrow(dat2)])
+true.b.coarse<- as.numeric(dat$behav_coarse[-1])
+model.b<- as.numeric(dat2$behav[-1])
 
 (which(true.b.coarse == model.b) %>% length()) / length(true.b.coarse)
-# 82.0% accuracy when including all different behaviors together at coarse scale
+# 95.8% accuracy when including all different behaviors together at coarse scale
 
 
 ## For 'Resting' behavior
 true.b.coarse_rest<- which(true.b.coarse == 1)
 model.b_rest<- which(model.b == 1)
 (which(true.b.coarse_rest %in% model.b_rest) %>% length()) / length(true.b.coarse_rest)
-# 88.6% accuracy for 'Resting' at coarse scale
+# 98.7% accuracy for 'Resting' at coarse scale
 
 ## For 'Exploratory' behavior
 true.b.coarse_exp<- which(true.b.coarse == 2)
 model.b_exp<- which(model.b == 2)
 (which(true.b.coarse_exp %in% model.b_exp) %>% length()) / length(true.b.coarse_exp)
-# 64.8% accuracy for 'Exploratory' at coarse scale
+# 89.7% accuracy for 'Exploratory' at coarse scale
 
 ## For 'Transit' behavior
 true.b.coarse_transit<- which(true.b.coarse == 3)
 model.b_transit<- which(model.b == 3)
 (which(true.b.coarse_transit %in% model.b_transit) %>% length()) / length(true.b.coarse_transit)
-# 98.5% accuracy for 'Transit' at coarse scale
+# 98.4% accuracy for 'Transit' at coarse scale
 

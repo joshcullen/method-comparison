@@ -24,7 +24,7 @@ As part of the upcoming manuscript that compares our newly developed method agai
 
 ## BRW for identifying ACs
 
-First, 20 ACs will be randomly identified for which to build the simulated BRW trajectory. Next, values will be chosen for the number of observations per time segment (n), the number and location of ACs (Z.centers), the number of phases or time segments (nphases), the initial location (Z0), the shape (a) and scale (b) parameters for a gamma distribution from which to draw step lengths, and the concentration parameter ($\rho$) from which to draw the turning angles:
+First, 10 ACs will be randomly identified for which to build the simulated BRW trajectory. Next, values will be chosen for the number of observations per time segment (n), the number and location of ACs (Z.centers), the number of phases or time segments (nphases), the initial location (Z0), the shape (a) and scale (b) parameters for a gamma distribution from which to draw step lengths, and the concentration parameter ($\rho$) from which to draw the turning angles:
 
 ```{r, fig.align='center', fig.width=3.5, fig.height=3.5, fig.pos='H', fig.cap="Location of the 20 randomly selected ACs."}
 
@@ -37,10 +37,10 @@ library(knitr)
 #randomly sample coordinates for 50 ACs
 
 #create vector of coordinates
+set.seed(2)
+AC.x<- sample(30, 10, replace = FALSE)
 set.seed(1)
-AC.x<- sample(50, 20, replace = FALSE)
-set.seed(3)
-AC.y<- sample(50, 20, replace = FALSE)
+AC.y<- sample(30, 10, replace = FALSE)
 AC<- data.frame(x=AC.x, y=AC.y)
 
 ggplot(AC, aes(x, y)) +
@@ -51,11 +51,11 @@ ggplot(AC, aes(x, y)) +
 
 ```{r, echo=TRUE}
 set.seed(3)
-track<- multiBRW.sim(n=250, a = 2, b = 1, nphases = 30, Z.center = AC, Z0 = c(3,4), rho = 0.3)
+track<- multiBRW.sim(n=1000, a = 1, b = 1, nphases = 15, Z.center = AC, Z0 = c(3,4), rho = 0.8)
 track$time1<- 1:nrow(track)  #add variable for time
 ```
 
-```{r, fig.align='center', fig.width=3.5, fig.height=3.5, fig.pos='H', fig.cap="Location of the 20 randomly selected ACs (gold) with respect to the trajectory simulated from a BRW (grey). The initial location is denoted by the green circle and the ending location by the red triangle."}
+```{r, fig.align='center', fig.width=3.5, fig.height=3.5, fig.pos='H', fig.cap="Location of the 10 randomly selected ACs (gold) with respect to the trajectory simulated from a BRW (grey). The initial location is denoted by the green circle and the ending location by the red triangle."}
 
 
 ggplot(data = track, aes(x, y)) +
@@ -68,7 +68,7 @@ ggplot(data = track, aes(x, y)) +
   coord_equal()
 ```
 
-These observations from the simulated trajectory will be used to create a grid on which to discretize space before running the segmentation algorithm. Cell resolution will be 2 units.
+These observations from the simulated trajectory will be used to create a grid on which to discretize space before running the segmentation algorithm. Cell resolution will be 5 units.
 
 ```{r}
 ### Data Prep for Segmentation Model ###
@@ -76,9 +76,6 @@ These observations from the simulated trajectory will be used to create a grid o
 library(dplyr)
 library(ggplot2)
 library(lubridate)
-library(sf)
-library(rnaturalearth)
-library(rnaturalearthdata)
 library(sp)
 library(raster)
 library(rgdal)
@@ -87,11 +84,9 @@ library(adehabitatLT)
 
 
 
-### Create Grid to Discretize Space
-
-# 2 unit res w 2 unit buffer on each side
-grid<- raster(extent(min(track$x), max(track$x), min(track$y), max(track$y)) + 4)
-res(grid)<- 2
+# 5 unit res w 2.5 unit buffer on each side
+grid<- raster(extent(min(track$x), max(track$x), min(track$y), max(track$y)) + 5)
+res(grid)<- 5
 grid[]<- 0
 track$grid.cell<- cellFromXY(grid, track[,c("x","y")])
 
@@ -116,10 +111,11 @@ ggplot() +
   geom_point(data = track, aes(x=x, y=y), color = "firebrick", size=0.5, alpha=0.5) +
   labs(x = "X", y = "Y") +
   theme_bw() +
+  theme(panel.grid = element_blank()) +
   coord_equal()
 ```
 
-```{r, fig.align='center', fig.width=6, fig.height=6, fig.pos='H', fig.cap="Density surface of point distribution."}
+```{r, fig.align='center', fig.width=5, fig.height=5, fig.pos='H', fig.cap="Density surface of point distribution."}
 #plot density surface of points in grid
 ggplot() +
   geom_tile(data=grid_f, aes(x=x, y=y, fill=count)) +
@@ -127,32 +123,33 @@ ggplot() +
   scale_fill_viridis_c("# of Observations", alpha = 0.6) +
   labs(x = "X", y = "Y") +
   theme_bw() +
+  theme(panel.grid = element_blank()) +
   coord_equal()
 ```
 
 Now with all observations assigned to a particular grid cell, the segmentation algorithm is used to identify breakpoints within the time series of movement:
 
-```{r, fig.align='center', out.width='0.85\\linewidth', fig.pos='H', fig.cap="Heatmap of grid cell occupancy over 7500 observations. Vertical green lines denote modeled breakpoints."}
+```{r, fig.align='center', out.width='0.85\\linewidth', fig.pos='H', fig.cap="Heatmap of grid cell occupancy over 15000 observations. Vertical green lines denote modeled breakpoints."}
 
 include_graphics(path.expand("~/Documents/Snail Kite Project/Data/R Scripts/method-comparison/BRW segmentation heatmap.png"))
 ```
 
 
-There are many breakpoints identified by the segmentation model, approximately an order of magnitude greater than the true number of breakpoints. When compared against one another, the breakpoints from the model do overlap with true breakpoints as well as many other additional points.
+There are many breakpoints identified by the segmentation model, almost four-fold greater than the true number of breakpoints. When compared against one another, most of the breakpoints from the model overlap with true breakpoints.
 
-```{r, fig.align='center', out.width='0.85\\linewidth', fig.pos='H', fig.cap="Comparison of true breakpoints from the BRW simulation compared to those identified by the model. N = 28 for true breakpoints and N = 278 for modeled breakpoints."}
+```{r, fig.align='center', out.width='0.85\\linewidth', fig.pos='H', fig.cap="Comparison of true breakpoints from the BRW simulation compared to those identified by the model. N = 14 for true breakpoints and N = 53 for modeled breakpoints."}
 
 include_graphics(path.expand("~/Documents/Snail Kite Project/Data/R Scripts/method-comparison/BRW breakpoint comparison.png"))
 ```
 
-Although there are many more breakpoints identified by the model than expected, we will continue with this example. Next, time segments will be assigned to the data, which will serve as input for the mixture model used to identify and assign ACs.
+Although there are some modeled breakpoints that occur within the middle of a time segment, most fall on or next to the true breaks in the time segments. Next, the raw observations will be assigned to these segments, which will serve as input for the mixture model used to identify and assign ACs.
 
 ```{r, fig.align='center', out.width='0.5\\linewidth', fig.pos='H', fig.cap="Comparison of true ACs (gold) to modeled ACs (blue) over the raw observations (grey)."}
 
 include_graphics(path.expand("~/Documents/Snail Kite Project/Data/R Scripts/method-comparison/BRW AC map.png"))
 ```
 
-From these results, it appears that the model had difficulty identifying the correct location of the ACs in just about every instance. This may be due to the way the trajectory was simulated and its effect on the segmentation step.
+From these results, it appears that the model did a good job of approximating the correct location of the ACs since it was limited to the centroids of occupied grid cells. Now that the ACs have been correctly identified, the next step is to determine the accuracy of AC assignment to the observations from all of the time segments. In our example, the model is 98.7% accurate in the assignment of ACs to each of the 15000 observations. The accuracy of AC locations and assignments to observations is dependent on the grid size and resolution, necessitating the testing of multiple grid sizes to find the best fit to the data.
 
 
 
@@ -173,20 +170,20 @@ set.seed(1)
 behav<- sample(c(1,2,3), 50, replace = TRUE, prob = c(0.5, 0.35, 0.15))
 n=50
 SL.params<- data.frame(shape=c(0.25, 2, 10), scale = c(1, 1, 1))
-TA.params<- data.frame(mu=c(pi, pi, 0), rho = c(0.8, 0.4, 0.8))
+TA.params<- data.frame(mu=c(pi, pi, 0), rho = c(0.8, 0, 0.8))
 
 track<- CRW.sim(n=n, behav = behav, SL.params = SL.params, TA.params = TA.params, Z0=c(0,0))
 ```
 
 ```{r, fig.align='center', fig.width=4, fig.height=6, fig.pos='H', fig.cap="Simulated CRW track with a single behavior assigned for each time segment. The green circle indicates the starting location and the red triangle is the ending location."}
-track$behav<- factor(track$behav)
-levels(track$behav)<- c("Resting","Exploratory","Transit")
+track$true.behav<- factor(track$true.behav)
+levels(track$true.behav)<- c("Resting","Exploratory","Transit")
 true.brkpts<- which(diff(behav) != 0) * n
 
 # plot that puppy
 ggplot(data = track[-1,], aes(x,y)) +
   geom_path(color = "gray75") +
-  geom_point(aes(fill=behav), pch = 21, size = 2.5, alpha = 0.7) +
+  geom_point(aes(fill=true.behav), pch = 21, size = 2.5, alpha = 0.7) +
   geom_point(data = track[1,], aes(x, y), color = "green", pch = 21, size = 3, stroke = 1.25) +
   geom_point(data = track[nrow(track),], aes(x, y), color = "red", pch = 24, size = 3,
              stroke = 1.25) +
@@ -202,7 +199,7 @@ We can also compare the SL and TA distributions among behaviors:
 
 ```{r, fig.align='center', fig.width=6, fig.height=4, fig.pos='H', fig.cap="Distributions of step lengths."}
 ggplot(track, aes(SL)) +
-  geom_density(aes(fill=behav), alpha = 0.6, na.rm = T) +
+  geom_density(aes(fill=true.behav), alpha = 0.6, na.rm = T) +
   scale_fill_viridis_d("Behavior") +
   theme_bw() +
   labs(x="\nSL", y="Density\n") +
@@ -212,7 +209,7 @@ ggplot(track, aes(SL)) +
 
 ```{r, fig.align='center', fig.width=6, fig.height=4, fig.pos='H', fig.cap="Distributions of turning angles."}
 ggplot(track, aes(TA)) +
-  geom_density(aes(fill=behav), alpha = 0.6, na.rm = T) +
+  geom_density(aes(fill=true.behav), alpha = 0.6, na.rm = T) +
   scale_fill_viridis_d("Behavior") +
   theme_bw() +
   labs(x="\nTA", y="Density\n") +
@@ -230,13 +227,13 @@ include_graphics(path.expand("~/Documents/Snail Kite Project/Data/R Scripts/meth
 ```
 
 
-```{r, fig.align='center', out.width='0.75\\linewidth', fig.pos='H', fig.cap="The model identifies fewer breakpoints than the true breakpoints. The locations of the modeled breakpoints are very similar if not identical to the true positions. However, some modeled breakpoints appear to be redundant."}
+```{r, fig.align='center', out.width='0.75\\linewidth', fig.pos='H', fig.cap="The model identifies a few more breakpoints than the true number of breakpoints. The locations of the modeled breakpoints are very similar if not identical to the true positions."}
 
 include_graphics(path.expand("~/Documents/Snail Kite Project/Data/R Scripts/method-comparison/CRW HC breakpoint comparison.png"))
 
 ```
 
-At a quick glance, the segmentation appears to do a good job compared to the true breakpoints. Next, I will run the latent Dirichlet allocation (LDA) model to cluster the time segments into separate behaviors. Following this analysis, I will determine the likely number of behavioral states from the posterior distribution, assign behavioral states to each cluster, and plot these over time and geographic space.
+At a glance, the segmentation appears to do a good job compared to the true breakpoints. Next, I will run the latent Dirichlet allocation (LDA) model to cluster the time segments into separate behaviors. Following this analysis, I will determine the likely number of behavioral states from the posterior distribution, assign behavioral states to each cluster, and plot these over time and geographic space.
 
 ```{r, fig.align='center', out.width='0.8\\linewidth', fig.pos='H', fig.cap="Probability of behavioral assignment for all time segments."}
 include_graphics(path.expand("~/Documents/Snail Kite Project/Data/R Scripts/method-comparison/CRW HC behavior boxplot.png"))
@@ -248,7 +245,7 @@ Model results:
 ```{r}
 #Determine proportion of behaviors (across all time segments)
 #Possibly set threshold below which behaviors are excluded
-c(0.546, 0.266, 0.187, 0.002, 0.000, 0.000, 0.000)
+c(0.538, 0.314, 0.146, 0.003, 0.000, 0.000, 0.000)
 ```
 
 True proportions of behaviors:
@@ -273,9 +270,9 @@ include_graphics(path.expand("~/Documents/Snail Kite Project/Data/R Scripts/meth
 ```
 
 
-Results for all three behaviors show that the model does a pretty good job at estimating the proportion of each behavior across all time segments. However, it appears that the 'transit' behavior was assigned properly most often compared to the 'resting' and 'exploratory' behaviors. This could be a result of these behaviors being relatively similar in their SL and TA.
+Results for all three behaviors show that the model does a pretty good job at estimating the proportion of each behavior across all time segments. However, it appears that the 'resting' and 'transit' behaviors were assigned properly more often compared to the 'exploratory' behavior. This could be a result of these behaviors being relatively similar in their SL and TA.
 
-```{r, fig.align='center', out.width='1.0\\linewidth', fig.pos='H', fig.cap="Simulated hard-clustering CRW track with behaviors estimated by the model. The green circle indicates the starting location and the red triangle is the ending location."}
+```{r, fig.align='center', out.width='0.5\\linewidth', fig.pos='H', fig.cap="Simulated hard-clustering CRW track with behaviors estimated by the model. The green circle indicates the starting location and the red triangle is the ending location."}
 
 include_graphics(path.expand("~/Documents/Snail Kite Project/Data/R Scripts/method-comparison/CRW HC behavior model map.png"))
 ```
@@ -283,7 +280,7 @@ include_graphics(path.expand("~/Documents/Snail Kite Project/Data/R Scripts/meth
 Outwardly, the behavioral states on this track as estimated by the model look almost identical to the original simulation. To quantify the model's accuracy, we will directly compare the behavioral estimates for all time segments of the track.
 \hfill\break
 
-The overall accuracy of the model was 92.4% (including all behaviors together). When breaking this down by behavior, the 'exploratory' behavior was identified with the least accuracy (83.0% accurate), which was still quite high. The 'resting' behavior was the next most accurate (99.0%) followed by the 'transit' behavior (99.7%). It appears that the 'resting' and 'transit' behaviors were easily identified since they were much different from each other and represented extremes. The 'exploratory' behavior had a different SL distribution from the other two, but had a similar TA distribution as the 'resting' behavior. This resulted in some segments being classified as 'resting' part of the time instead, which likely reduced the overall accuracy of behavior classification. However, accuracy of the model is still very high.
+The overall accuracy of the model was 97.7% (including all behaviors together). When breaking this down by behavior, the 'exploratory' behavior was identified with the least accuracy (96.4% accurate), which was still quite high. The 'transit' behavior was the next most accurate (98.0%) followed by the 'resting' behavior (98.9%). It appears that the 'resting' and 'transit' behaviors were easily identified since they were much different from each other and represented extremes. The 'exploratory' behavior had a somewhat similar SL distribution compared to the 'resting' behavior, but had a uniform TA distribution. This resulted in the proportion of 'exploratory' behavior assigned to specific time segments to be lower than thier true value. However, the accuracy of this model is very high when evaluating all behaviors together or separately.
 
 
 ### Mixed-membership clustering
@@ -296,24 +293,36 @@ Now, I will simulate data using the mixed-membership clustering method for behav
 #and behavior 3 (Transit) occurs 15%
 #Within each behavior segment, dominant behavior prob is 0.8 while other two are 0.1
 
-set.seed(4)
+set.seed(2)
+
+#create vector of dominant behaviors per time segment (50 segments)
 behav<- sample(c(1,2,3), 50, replace = TRUE, prob = c(0.5, 0.35, 0.15))
 
-#create vector of behaviors within each time segment
+#randomly choose 3 segments of each behavior to be 'pure' instead of mixed
+behav1.pure<- sample(which(behav==1), 3, replace = FALSE)
+behav2.pure<- sample(which(behav==2), 3, replace = FALSE)
+behav3.pure<- sample(which(behav==3), 3, replace = FALSE)
+
+pure<- c(behav1.pure, behav2.pure, behav3.pure) %>% sort()
+
+
+#create vector of behaviors within each time segment (duration of 100 steps)
 behav.full<- vector("list", length(behav))
 for (i in 1:length(behav)) {
-  if (behav[i] == 1) {
-    behav.full[[i]]<- sample(c(1,2,3), 50, replace = TRUE, prob = c(0.8, 0.1, 0.1))
+  if (i %in% pure) {
+    behav.full[[i]]<- rep(behav[i], 100)
+  }else if (behav[i] == 1) {
+    behav.full[[i]]<- sample(c(1,2,3), 100, replace = TRUE, prob = c(0.8, 0.1, 0.1))
   } else if (behav[i] == 2) {
-    behav.full[[i]]<- sample(c(1,2,3), 50, replace = TRUE, prob = c(0.1, 0.8, 0.1))
+    behav.full[[i]]<- sample(c(1,2,3), 100, replace = TRUE, prob = c(0.1, 0.8, 0.1))
   } else if (behav[i] == 3) {
-    behav.full[[i]]<- sample(c(1,2,3), 50, replace = TRUE, prob = c(0.1, 0.1, 0.8))
+    behav.full[[i]]<- sample(c(1,2,3), 100, replace = TRUE, prob = c(0.1, 0.1, 0.8))
   }
 }
 behav.full<- unlist(behav.full)
 
 SL.params<- data.frame(shape=c(0.25, 2, 10), scale = c(1, 1, 1))
-TA.params<- data.frame(mu=c(pi, pi, 0), rho = c(0.8, 0.4, 0.8))
+TA.params<- data.frame(mu=c(pi, pi, 0), rho = c(0.8, 0, 0.8))
 
 track<- CRW.sim(n=1, behav = behav.full, SL.params = SL.params, TA.params = TA.params, Z0=c(0,0))
 ```
@@ -323,10 +332,10 @@ track<- CRW.sim(n=1, behav = behav.full, SL.params = SL.params, TA.params = TA.p
 names(track)[5]<- "behav_fine"
 track$behav_fine<- factor(track$behav)
 levels(track$behav_fine)<- c("Resting","Exploratory","Transit")
-track<- track %>% mutate(behav_coarse = c(NA, rep(behav, each=50)) %>% factor())
+track<- track %>% mutate(behav_coarse = c(NA, rep(behav, each=100)) %>% factor())
 levels(track$behav_coarse)<- c("Resting","Exploratory","Transit")
 
-true.brkpts<- which(diff(behav) != 0) * 50
+true.brkpts<- which(diff(behav) != 0) * 100
 
 
 # plot that puppy
@@ -396,12 +405,12 @@ Again, we can run the segmentation algorithm to determine the number and locatio
 include_graphics(path.expand("~/Documents/Snail Kite Project/Data/R Scripts/method-comparison/CRW MM segmentation heatmap.png"))
 ```
 
-```{r, fig.align='center', out.width='0.75\\linewidth', fig.pos='H', fig.cap="The model identifies fewer breakpoints than the true breakpoints. The locations of the modeled breakpoints are very similar if not identical to the true positions. However, some modeled breakpoints appear to be redundant."}
+```{r, fig.align='center', out.width='0.75\\linewidth', fig.pos='H', fig.cap="The model identifies slightly more breakpoints than the number of true breakpoints. The locations of the modeled breakpoints are very similar if not identical to the true positions."}
 
 include_graphics(path.expand("~/Documents/Snail Kite Project/Data/R Scripts/method-comparison/CRW MM breakpoint comparison.png"))
 ```
 
-At a quick glance, the segmentation appears to do a decent job compared to the true breakpoints, but still misses a number of breaks where there are transitions between 'resting' and 'exploratory' behaviors. Next, I will run the latent Dirichlet allocation (LDA) model to cluster the time segments into separate behaviors.
+At a glance, the segmentation method appears to do a good job compared to the true breakpoints, only missing a couple breakpoints between the 1000th and 1500th observations. Next, I will run the latent Dirichlet allocation (LDA) model to cluster the time segments into separate behaviors.
 
 ```{r, fig.align='center', out.width='0.8\\linewidth', fig.pos='H', fig.cap="Probability of behavioral assignment for all time segments."}
 include_graphics(path.expand("~/Documents/Snail Kite Project/Data/R Scripts/method-comparison/CRW MM behavior boxplot.png"))
@@ -413,7 +422,7 @@ Model results:
 ```{r}
 #Determine proportion of behaviors (across all time segments)
 #Possibly set threshold below which behaviors are excluded
-c(0.563, 0.281, 0.153, 0.003, 0.000, 0.000, 0.000)
+c(0.502, 0.293, 0.194, 0.011, 0.000, 0.000, 0.000)
 ```
 
 True proportions of behaviors:
@@ -422,14 +431,14 @@ True proportions of behaviors:
 table(behav)/50
 ```
 
-The modeled proportions appear to be different compared to the true values used to generate the simulation. This could be a result of the segmentation step and how different behaviors were grouped together. Next, let's look at the histograms for each of these top three clusters/behaviors from the model and assign a state to each:
+The modeled proportions appear to be very similar to the true proportions if they are assigned in the same order by the model. Next, let's look at the histograms for each of these top three clusters/behaviors from the model and assign a state to each:
 
 ```{r, fig.align='center', out.width='1.0\\linewidth', fig.pos='H', fig.cap="Distributions for the SL and TA of each of the top three clusters from the LDA model."}
 
 include_graphics(path.expand("~/Documents/Snail Kite Project/Data/R Scripts/method-comparison/CRW MM behavior hist.png"))
 ```
 
-These histograms are not as clean as for the hard-clustering CRW simulation, but still match up with the original distributions of the mixed-membership simulation. Now, we can investigate how these behavioral estimates match with the true behaviors from the mixed-membership simulation:
+These histograms appear to be quite distinct from one another and match up with the original distributions of the mixed-membership simulation. In this figure, the 'exploratory' behavior is the first cluster, 'resting' is the second cluster, and 'transit' is the third cluster. Now, we can investigate how these behavioral estimates match with the true behaviors from the mixed-membership simulation:
 
 ```{r, fig.align='center', out.width='1.0\\linewidth', fig.pos='H', fig.cap="Each of these panels shows a separate behavior, where the proportion of the true state occurrence is indicated by the thinner line and the modeled proportion is denoted by the thicker line."}
 
@@ -437,14 +446,14 @@ include_graphics(path.expand("~/Documents/Snail Kite Project/Data/R Scripts/meth
 ```
 
 
-Results for all three behaviors show that the model does an okay job at estimating the proportion of each behavior across all time segments, likely due to the difficulty distinguishing between 'resting' and 'exploratory' behaviors. This is likely a result of the 'resting' and 'exploratory' clusters having SL and TA distributions that were very similar to each other following the segmentation of the time series. Alternatively, it appears that the 'transit' behavior was assigned properly most often of the time; estimates were often in greater proportions compared to the simulated data, however.
+Results for all three behaviors show that the model performs very well at estimating the proportion of each behavior across all time segments. The estimated and true proportions for behaviors in each time segment are similar in most cases, demonstrating the power of the LDA to determine accurate proportions. These results may vary depending on the number and similarity of behaviors given the parameters on which behavior is originally segmented.
 
 ```{r, fig.align='center', out.width='1.0\\linewidth', fig.pos='H', fig.cap="Simulated mixed-membership CRW track with behaviors estimated by the model. The green circle indicates the starting location and the red triangle is the ending location."}
 
 include_graphics(path.expand("~/Documents/Snail Kite Project/Data/R Scripts/method-comparison/CRW MM behavior model map.png"))
 ```
 
-Outwardly, the behavioral states on this track as estimated by the model still very similar to the original simulation, but there are sections were differences are noticeable. To quantify the model's accuracy, we will directly compare the behavioral estimates for all time segments of the track.
+Outwardly, the behavioral states of this track as estimated by the model are very similar to the original simulation. To quantify the model's accuracy, we will directly compare the behavioral estimates for all time segments of the track.
 \hfill\break
 
-The overall accuracy of the model in identifying the dominant behavior per time segment was 82.0% (including all behaviors together). When breaking this down by behavior, the 'exploratory' behavior was identified with the least accuracy (64.8% accurate), which was much lower than for the hard-clustering simulation (83%). The 'resting' and 'transit' behaviors were both more accurate (88.6 and 98.5%, respectively) than the 'exploratory' behavior, but were noticeably lower than the 99% classification accuracy of both behaviors from the hard-clustering simulation. It appears that the 'resting' and 'transit' behaviors were more easily identified since they were much different from each other and represented extremes. As an intermediate behavior type that resembled the 'resting' behavior in SL and TA after the segmentation step of the model, the 'exploratory' behavior was not accurately classified nearly as much as in the previous simulation. This could also be a possible effect of the simulation itself during the step of simulating the different states per observation within each time segment if there were similar values sampled for SL and TA in the 'resting' and 'exploratory' behaviors. Overall, this model does a pretty good job at classification of the extreme behaviors, but struggled to classify the intermediate behavior for the mixed-membership CRW simulation.
+The overall accuracy of the model in identifying the dominant behavior per time segment was 95.8% (including all behaviors together). When breaking this down by behavior, the 'exploratory' behavior was identified with the least accuracy (89.7% accurate), which was much lower than for the hard-clustering simulation (96.4%). The 'resting' and 'transit' behaviors were both more accurate (98.7 and 98.4%, respectively) than the 'exploratory' behavior, which was nearly identical to the classification accuracy of both behaviors from the hard-clustering simulation. It appears that the 'resting' and 'transit' behaviors were more easily identified since they were much different from each other and represented extremes. As an intermediate behavior type that resembled the 'resting' behavior in SL after the segmentation step of the model, the 'exploratory' behavior was not accurately classified as often. Overall, this model performed very well at behavior classification when the data were generated from a hard-clustering or mixed-membership CRW simulation.

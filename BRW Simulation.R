@@ -13,10 +13,10 @@ source('Simulation Functions.R')
 #randomly sample coordinates for 50 ACs
 
 #create vector of coordinates
+set.seed(2)
+AC.x<- sample(30, 10, replace = FALSE)
 set.seed(1)
-AC.x<- sample(50, 20, replace = FALSE)
-set.seed(3)
-AC.y<- sample(50, 20, replace = FALSE)
+AC.y<- sample(30, 10, replace = FALSE)
 AC<- data.frame(x=AC.x, y=AC.y)
 
 ggplot(AC, aes(x, y)) +
@@ -29,7 +29,7 @@ ggplot(AC, aes(x, y)) +
 #(n=250 per phase for 30 phases; 'a' and 'b' are shape and scale params for gamma distribution, Z.center is a matrix/DF of AC locations, Z0 is the initial location, and rho is the concentration param of a wrapped cauchy distribution that governs how attracted the simulation is to ACs)
 
 set.seed(3)
-track<- multiBRW.sim(n=250, a = 2, b = 1, nphases = 30, Z.center = AC, Z0 = c(3,4), rho = 0.3)
+track<- multiBRW.sim(n=1000, a = 1, b = 1, nphases = 15, Z.center = AC, Z0 = c(3,4), rho = 0.8)
 track$time1<- 1:nrow(track)  #add variable for time
 
 
@@ -59,22 +59,17 @@ ggplot(data = track, aes(x, y)) +
 library(dplyr)
 library(ggplot2)
 library(lubridate)
-library(sf)
-library(rnaturalearth)
-library(rnaturalearthdata)
 library(sp)
 library(raster)
 library(rgdal)
-library(adehabitatLT)
-
 
 
 
 ### Create Grid to Discretize Space
 
-# 2 unit res w 2 unit buffer on each side
-grid<- raster(extent(min(track$x), max(track$x), min(track$y), max(track$y)) + 4)
-res(grid)<- 2
+# 5 unit res w 2.5 unit buffer on each side
+grid<- raster(extent(min(track$x), max(track$x), min(track$y), max(track$y)) + 5)
+res(grid)<- 5
 grid[]<- 0
 track$grid.cell<- cellFromXY(grid, track[,c("x","y")])
 
@@ -98,6 +93,7 @@ ggplot() +
   geom_point(data = track, aes(x=x, y=y), color = "firebrick", size=0.5, alpha=0.5) +
   labs(x = "X", y = "Y") +
   theme_bw() +
+  theme(panel.grid = element_blank()) +
   coord_equal()
 
 #plot density surface of points in grid
@@ -110,6 +106,31 @@ ggplot() +
   coord_equal()
 
 
+#heatmap of grid cell occupancy over time
+nloc<- ncell(grid)
+nobs<- nrow(track)
+obs<- matrix(0, nobs, nloc)
+
+for (i in 1:nrow(track)) {
+  obs[i, track$grid.cell[i]]<- 1
+}
+
+obs<- data.frame(obs)
+names(obs)<- 1:nloc
+obs.long<- obs %>% gather(key, value) %>% mutate(time=rep(1:nobs, times=nloc))
+obs.long$key<- as.numeric(obs.long$key)
+obs.long$value<- factor(obs.long$value)
+levels(obs.long$value)<- c("Absence","Presence")
+
+ggplot(obs.long, aes(x=time, y=key, fill=value)) +
+    geom_tile() +
+    scale_fill_viridis_d("") +
+    scale_y_continuous(expand = c(0,0)) +
+    scale_x_continuous(expand = c(0,0)) +
+    labs(x = "Observations", y = "Grid Cell") +
+    theme_bw() +
+    theme(axis.title = element_text(size = 18), axis.text = element_text(size = 16),
+          title = element_text(size = 20))
 
 
 
@@ -155,7 +176,7 @@ ngibbs = 10000
 
 ## Run Gibbs sampler
 dat.res<- space_segment(data = dat.list2, identity = identity, ngibbs = ngibbs)
-###Takes 15 min to run for 10000 iterations
+###Takes 5 min to run for 10000 iterations
 
 
 ## Traceplots
@@ -276,8 +297,8 @@ dat<- dat_out
 obs<- get.summary.stats_obs(dat)  #frequency of visitation in each location (column) for each time segment (row)
 
 #geographical coordinates of locations
-grid<- raster(extent(min(dat$x), max(dat$x), min(dat$y), max(dat$y)) + 4)
-res(grid)<- 2
+grid<- raster(extent(min(dat$x), max(dat$x), min(dat$y), max(dat$y)) + 5)
+res(grid)<- 5
 grid[]<- 0
 
 grid.cell.locs<- coordinates(grid) %>% data.frame()
@@ -285,15 +306,16 @@ names(grid.cell.locs)<- c("x", "y")
 grid.cell.locs$grid.cell<- 1:length(grid)
 grid.coord<- grid.cell.locs[grid.cell.locs$grid.cell %in% dat$grid.cell,]
 
-#Define initial activity centers (top 50 by # of obs)
+
+#Define initial activity centers (top 30 by # of obs)
 tmp<- colSums(obs[,-1]) %>% data.frame(grid.cell = colnames(obs[,-1]), nobs = .) %>%
-  arrange(desc(nobs)) %>% slice(n=1:50) %>% dplyr::select(grid.cell)
+  arrange(desc(nobs)) %>% slice(n=1:30) %>% dplyr::select(grid.cell)
 tmp<- tmp$grid.cell %>% as.character() %>% as.numeric()
-ind<- sample(tmp, size = 20, replace = F)
+ind<- sample(tmp, size = 10, replace = F)
 
 ac.coord.init<- grid.coord[ind,]
 
-#top 50
+#top 30
 ac.coord.init2<- grid.coord[tmp,]
 
 #potential locations for activity centers (AC)
@@ -304,7 +326,7 @@ possib.ac=grid.coord #these don't have to be identical (i.e., we can define AC's
 #basic setup
 ngibbs=1000
 nburn=ngibbs/2
-n.ac=20
+n.ac=10
 gamma1=0.1
 
 #run gibbs sampler
@@ -324,16 +346,22 @@ plot(res$phi,type='l')
 ### Extract AC Coordinates and Assignments ###
 ##############################################
 
-ac<- res$z[which.max(res$logl),]  #use ACs from iteration with max log likelihood
+##use ACs from iteration with max log likelihood (after burn-in)
+ML<- res$logl %>% order(decreasing = T)
+ML<- ML[ML > 500][1]
+ac<- res$z[ML,]
 ac.coords<- matrix(NA, length(unique(ac)), 2)
 colnames(ac.coords)<- c("x","y")
-tmp<- res$coord[which.max(res$logl),]
+tmp<- res$coord[ML,]
 
 for (i in 1:length(unique(ac))) {
-  ac.coords[i,]<- round(c(tmp[i], tmp[i+length(unique(ac))]), 0)
+  ac.coords[i,]<- round(c(tmp[i], tmp[i+length(unique(ac))]), 1)
 }
 
-ac.coords<- data.frame(ac.coords, ac=1:length(unique(ac)))
+ac.coords<- data.frame(ac.coords, ac = 1:length(unique(ac)))
+
+#rearrange to match order/labelling of true ACs
+ac.coords2<- data.frame(ac.coords[c(5,1,3,4,10,2,8,6,7,9),1:2], ac=1:length(unique(ac)))
 
 table(ac)
 
@@ -346,20 +374,48 @@ tseg.length<- dat %>% group_by(id, tseg) %>% tally()
 tseg.length<- tseg.length$n
 ac.aug<- rep(ac, times = tseg.length)
 
-dat$ac<- ac.aug
+dat$model.ac<- ac.aug
+
+#change ID of true.ac to match output from model for comparison
+AC$true.ac<- 1:10
+AC$model.ac<- c(5,1,3,4,10,2,8,6,7,9)
+for (i in 1:nrow(dat)) {
+  dat$true.ac_mod[i]<- AC$model.ac[dat$true.ac[i]]
+}
 
 #Calculate number of obs per AC
-dat %>% group_by(id) %>% dplyr::select(ac) %>% table()
-
+dat %>% group_by(id) %>% dplyr::select(true.ac_mod) %>% table()
+dat %>% group_by(id) %>% dplyr::select(model.ac) %>% table()
 
 
 ## Map
 
 ggplot() +
+  geom_path(data = borders_f, aes(x=long, y=lat, group=group), size=0.25) +
   geom_point(data = dat, aes(x, y), color="grey45", size=2, alpha = 0.5) +
-  geom_point(data = ac.coords, aes(y, x), color = "blue", size = 3, pch = 1, stroke = 1) +
+  geom_point(data = ac.coords, aes(x, y), color = "blue", size = 4, pch = 17, stroke = 1) +
   geom_point(data = AC, aes(x, y), color = "gold", size = 3, pch = 1, stroke = 1) +
   scale_color_viridis_c("Activity Center") +
   labs(x = "X", y = "Y") +
   theme_bw() +
+  theme(panel.grid = element_blank()) +
   coord_equal()
+
+
+####################################
+#### Evaluate Accuracy of Model ####
+####################################
+
+#calc distances between true and modeled ACs
+dist<- rep(NA, 10)
+tmp<- (AC[,1:2] - ac.coords2[, 1:2])^2
+dist<- sqrt(tmp[,1] + tmp[,2])
+
+range(dist)  #min = 0.76, max = 2.86
+mean(dist)  #mean = 1.84
+
+
+
+#assignment of ACs to obs
+tmp<- which(dat$true.ac_mod - dat$model.ac == 0) %>% length()
+tmp/nrow(dat)  #98.7% accuracy for AC assignment

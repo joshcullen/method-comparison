@@ -3,6 +3,8 @@
 library(tidyverse)
 library(circular)
 
+source('Simulation Functions.R')
+
 
 #################
 #### Resting ####
@@ -73,7 +75,7 @@ summary(steps)
 
 
 # make clustered turning angles
-theta <- rwrappedcauchy(N, mu=circular(pi), rho=0.4)
+theta <- rwrappedcauchy(N, mu=circular(pi), rho=0.2)
 theta <- ifelse(theta > pi, theta-(2*pi), theta)
 # check out their distribution
 rose.diag(theta,bins=24)
@@ -171,77 +173,22 @@ table(behav) #check freq
 
 n=50
 SL.params<- data.frame(shape=c(0.25, 2, 10), scale = c(1, 1, 1))
-TA.params<- data.frame(mu=c(pi, pi, 0), rho = c(0.8, 0.4, 0.8))
+TA.params<- data.frame(mu=c(pi, pi, 0), rho = c(0.8, 0, 0.8))
 
-#Simulation function
-CRW.sim=function(n, behav, SL.params, TA.params, Z0) {  
-  #n=duration of each randomly sampled state
-  #behav=vector of behavioral states
-  #SL.params=df of shape and scale params
-  #TA.params=df of mean TA and concen. param
-  #Z0=initial location
-  
-  #uses gamma and wrapped cauchy distribs
-  #behaviors params must be in order
-  #for simulating w/ 3 behavioral states
-  
-  #create vector of step lengths
-  SL<- vector("list", length(behav))
-  for (i in 1:length(behav)) {
-    if (behav[i] == 1) {
-      SL[[i]]<- rgamma(n, shape = SL.params[1,1], scale = SL.params[1,2])  #Rest
-    } else if (behav[i] == 2) {
-      SL[[i]]<- rgamma(n, shape = SL.params[2,1], scale = SL.params[2,2])  #Exploratory
-    } else {
-      SL[[i]]<- rgamma(n, shape = SL.params[3,1], scale = SL.params[3,2])  #Transit
-    }
-  }
-  SL<- unlist(SL)
 
-  
-  #create vector of turning angles
-  TA<- vector("list", length(behav))
-  for (i in 1:length(behav)) {
-    if (behav[i] == 1) {
-      TA[[i]]<- rwrappedcauchy(n, mu=circular(TA.params[1,1]), rho=TA.params[1,2]) %>%
-        ifelse(. > pi, .-(2*pi), .)  #Rest
-    } else if (behav[i] == 2) {
-      TA[[i]]<- rwrappedcauchy(n, mu=circular(TA.params[2,1]), rho=TA.params[2,2]) %>%
-        ifelse(. > pi, .-(2*pi), .)  #Exploratory
-    } else {
-      TA[[i]]<- rwrappedcauchy(n, mu=circular(TA.params[3,1]), rho=TA.params[3,2]) %>%
-        ifelse(. > pi, .-(2*pi), .)  #Transit
-    }
-  }
-  TA<- unlist(TA)
-  
-  
-  # cumulative angle
-  Phi <- cumsum(TA)
-  
-  # step length components
-  dX <- SL*cos(Phi)
-  dY <- SL*sin(Phi)
-  
-  # actual X-Y values
-  X <- c(Z0[1], Z0[1] + cumsum(dX))
-  Y <- c(Z0[2], Z0[2] + cumsum(dY))
-  track<- data.frame(x = X, y = Y, SL = c(NA,SL), TA = c(NA, TA),
-                     behav = as.factor(c(NA, rep(behav, each=n))))
-  
-  track
-}
+#simulate track
+#n=duration of each time segment (behav), behav is a vector of behaviors, SL.params and TA.params are DFs of the necessary params from which to generate distributions for SL and TA from gamma and wrapped cauchy distribs, and Z0 is the initial location
 
 track<- CRW.sim(n=n, behav = behav, SL.params = SL.params, TA.params = TA.params, Z0=c(0,0))
-track$behav<- factor(track$behav)
-levels(track$behav)<- c("Resting","Exploratory","Transit")
+track$true.behav<- factor(track$true.behav)
+levels(track$true.behav)<- c("Resting","Exploratory","Transit")
 true.brkpts<- which(diff(behav) != 0) * n
 
 
 # plot that puppy
 ggplot(data = track[-1,], aes(x,y)) +
   geom_path(color = "gray75") +
-  geom_point(aes(fill=behav), pch = 21, size = 2.5, alpha = 0.7) +
+  geom_point(aes(fill=true.behav), pch = 21, size = 2.5, alpha = 0.7) +
   geom_point(data = track[1,], aes(x, y), color = "green", pch = 21, size = 3, stroke = 1.25) +
   geom_point(data = track[nrow(track),], aes(x, y), color = "red", pch = 24, size = 3,
              stroke = 1.25) +
@@ -255,12 +202,12 @@ ggplot(data = track[-1,], aes(x,y)) +
 
 #compare distributions of SL and TA among behaviors
 ggplot(track, aes(SL)) +
-  geom_density(aes(fill=behav), alpha = 0.6, na.rm = T) +
+  geom_density(aes(fill=true.behav), alpha = 0.6, na.rm = T) +
   scale_fill_viridis_d("Behavior") +
   theme_bw()
 
 ggplot(track, aes(TA)) +
-  geom_density(aes(fill=behav), alpha = 0.6, na.rm = T) +
+  geom_density(aes(fill=true.behav), alpha = 0.6, na.rm = T) +
   scale_fill_viridis_d("Behavior") +
   theme_bw()
 
@@ -452,8 +399,8 @@ dat2$behav<- factor(dat2$behav, levels = c("Resting","Exploratory","Transit"))
 
 ggplot() +
   geom_path(data = dat2, aes(x=x, y=y), color="gray60", size=0.25) +
-  geom_point(data = dat2[-nrow(dat2),], aes(x, y, fill=behav), size=2.5, pch=21,
-             alpha=dat2$prop[-nrow(dat2)]) +
+  geom_point(data = dat2[-1,], aes(x, y, fill=behav), size=2.5, pch=21,
+             alpha=dat2$prop[-1]) +
   scale_fill_viridis_d("Behavior") +
   geom_point(data = dat2[1,], aes(x, y), color = "green", pch = 21, size = 3, stroke = 1.25) +
   geom_point(data = dat2[nrow(dat2),], aes(x, y), color = "red", pch = 24, size = 3,
@@ -475,28 +422,27 @@ true.b<- ind
 model.b<- as.numeric(dat2$behav[-nrow(dat2)])
 
 (which(true.b == model.b) %>% length()) / length(true.b)
-# 92.4% accuracy when including all different behaviors together
+# 97.7% accuracy when including all different behaviors together
 
 
 ## For 'Resting' behavior
 true.b_rest<- which(true.b == 1)
 model.b_rest<- which(model.b == 1)
 (which(true.b_rest %in% model.b_rest) %>% length()) / length(true.b_rest)
-# 99.0% accuracy for 'Resting'
+# 98.9% accuracy for 'Resting'
 
 
 ## For 'Exploratory' behavior
 true.b_exp<- which(true.b == 2)
 model.b_exp<- which(model.b == 2)
 (which(true.b_exp %in% model.b_exp) %>% length()) / length(true.b_exp)
-# 83.0% accuracy for 'Exploratory'
+# 96.4% accuracy for 'Exploratory'
 
 
 ## For 'Transit' behavior
 true.b_transit<- which(true.b == 3)
 model.b_transit<- which(model.b == 3)
 (which(true.b_transit %in% model.b_transit) %>% length()) / length(true.b_transit)
-# 99.7% accuracy for 'Exploratory'
+# 98.0% accuracy for 'Exploratory'
 
 
-# It appears that the 'resting' and 'transit' behaviors were easily identified since they were much different from each other and represented extremes. The 'exploratory' behavior had a different SL distribution from the other two, but had a similar TA distribution as the 'resting' behavior. This resulted in some segments being classified as 'resting' part of the time instead, which likely reduced the overall accuracy of behavior classification.
