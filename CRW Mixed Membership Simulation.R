@@ -128,11 +128,12 @@ dat$id<- 1
 dat.list<- df.to.list(dat=dat)
 names(dat)[3:4]<- c("dist","rel.angle")
 behav.list<- behav.prep(dat=dat, tstep = 3600)  #add move params and filter by 3600 s interval
+behav.list2<- lapply(behav.list, function(x) subset(x, select = c(id, SL, TA)))  #retain id and parameters on which to segment
 
 ## Run RJMCMC
 ngibbs = 40000
-dat.res<- behavior_segment(dat = behav.list, ngibbs = ngibbs)
-#takes 17 min for 40000 iterations
+dat.res<- behavior_segment(data = behav.list2, ngibbs = ngibbs, nbins = c(6,8))
+#takes 12.5 min for 40000 iterations
 
 
 ## Traceplots
@@ -198,20 +199,21 @@ sourceCpp('aux1.cpp')
 
 #get data
 dat.list<- df.to.list(dat_out)  #for later behavioral assignment
-obs<- get.summary.stats_behav(dat_out)  #to run Gibbs sampler on
+nbins<- c(6,8)  #number of bins per param (in order)
+dat_red<- dat_out %>% dplyr::select(c(id, tseg, SL, TA))  #only keep necessary cols
+obs<- get.summary.stats_behav(dat = dat_red, nbins = nbins)  #to run Gibbs sampler on
 
 
 #prepare for Gibbs sampler
 ngibbs=1000
 nburn=ngibbs/2
-ind1=grep('y1',colnames(obs))
-ind2=grep('y2',colnames(obs))
-nmaxclust=max(length(ind1),length(ind2))-1  #max possible is 1 fewer than largest number of bins
+nmaxclust=max(nbins) - 1  #one fewer than max number of bins used for params
+ndata.types=length(nbins)
 
 #run Gibbs sampler
 res=LDA_behavior_gibbs(dat=obs, gamma1=gamma1, alpha=alpha,
                        ngibbs=ngibbs, nmaxclust=nmaxclust,
-                       nburn=nburn)
+                       nburn=nburn, ndata.types=ndata.types)
 
 #Check traceplot of log marginal likelihood
 plot(res$loglikel, type='l')
@@ -230,7 +232,7 @@ table(behav)/50
 
 
 ## Viz histograms from model
-behav.res<- get_behav_hist(res)
+behav.res<- get_behav_hist(res = res, dat_red = dat_red)
 behav.res<- behav.res[behav.res$behav <=3,]  #only select the top 3 behaviors
 
 #Plot histograms of proportion data; order color scale from slow to fast
@@ -241,7 +243,7 @@ ggplot(behav.res, aes(x = bin, y = prop, fill = as.factor(behav))) +
   theme(axis.title = element_text(size = 16), axis.text.y = element_text(size = 14),
         axis.text.x.bottom = element_text(size = 12),
         strip.text = element_text(size = 14), strip.text.x = element_text(face = "bold")) +
-  scale_fill_manual(values = viridis(n=3)[c(2,1,3)], guide = F) +
+  scale_fill_manual(values = viridis(n=3)[c(1,3,2)], guide = F) +
   facet_grid(param ~ behav, scales = "fixed")
 
 
@@ -250,8 +252,8 @@ ggplot(behav.res, aes(x = bin, y = prop, fill = as.factor(behav))) +
 #Assign behaviors (via theta) to each time segment
 theta.estim<- apply(theta.estim[,1:3], 1, function(x) x/sum(x)) %>% t()  #normalize probs for only first 3 behaviors being used
 theta.estim<- data.frame(id = obs$id, tseg = obs$tseg, theta.estim)
-names(theta.estim)<- c("id", "tseg","Exploratory","Resting","Transit")  #define behaviors
-nobs<- data.frame(id = obs$id, tseg = obs$tseg, n = apply(obs[,11:16], 1, sum)) #calc obs per tseg using SL bins (more reliable than TA)
+names(theta.estim)<- c("id", "tseg","Resting","Transit","Exploratory")  #define behaviors
+nobs<- data.frame(id = obs$id, tseg = obs$tseg, n = apply(obs[,3:8], 1, sum)) #calc obs per tseg using SL bins (more reliable than TA)
 
 #Create augmented matrix by replicating rows (tsegs) according to obs per tseg
 theta.estim2<- aug_behav_df(dat = dat_out[-1,] %>% mutate(date=1:nrow(dat_out[-1,])),
@@ -293,6 +295,7 @@ ggplot(theta.estim.long) +
 
 dat2<- assign_behav(dat.list = dat.list, theta.estim2 = theta.estim2)
 dat2$behav<- factor(dat2$behav, levels = c("Resting","Exploratory","Transit"))
+dat2[,c("behav","prop")]<- dat2[c(5001,1:5000),c("behav","prop")]
 
 ggplot() +
   geom_path(data = dat2, aes(x=x, y=y), color="gray60", size=0.25) +
@@ -319,24 +322,24 @@ true.b.coarse<- as.numeric(dat$behav_coarse[-1])
 model.b<- as.numeric(dat2$behav[-1])
 
 (which(true.b.coarse == model.b) %>% length()) / length(true.b.coarse)
-# 95.8% accuracy when including all different behaviors together at coarse scale
+# 92.7% accuracy when including all different behaviors together at coarse scale
 
 
 ## For 'Resting' behavior
 true.b.coarse_rest<- which(true.b.coarse == 1)
 model.b_rest<- which(model.b == 1)
 (which(true.b.coarse_rest %in% model.b_rest) %>% length()) / length(true.b.coarse_rest)
-# 98.7% accuracy for 'Resting' at coarse scale
+# 99.4% accuracy for 'Resting' at coarse scale
 
 ## For 'Exploratory' behavior
 true.b.coarse_exp<- which(true.b.coarse == 2)
 model.b_exp<- which(model.b == 2)
 (which(true.b.coarse_exp %in% model.b_exp) %>% length()) / length(true.b.coarse_exp)
-# 89.7% accuracy for 'Exploratory' at coarse scale
+# 78.9% accuracy for 'Exploratory' at coarse scale
 
 ## For 'Transit' behavior
 true.b.coarse_transit<- which(true.b.coarse == 3)
 model.b_transit<- which(model.b == 3)
 (which(true.b.coarse_transit %in% model.b_transit) %>% length()) / length(true.b.coarse_transit)
-# 98.4% accuracy for 'Transit' at coarse scale
+# 98.7% accuracy for 'Transit' at coarse scale
 
