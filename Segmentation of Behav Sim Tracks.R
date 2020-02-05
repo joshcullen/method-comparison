@@ -2,7 +2,7 @@
 #### Run Segmentation Model ####
 ################################
 
-setwd("~/Documents/Snail Kite Project/Data/R Scripts/git_segmentation_behavior")  #CHANGE THIS!
+setwd("~/Documents/Snail Kite Project/Data/R Scripts/ValleLabUF/git_segmentation_behavior")
 
 set.seed(2)
 
@@ -17,6 +17,8 @@ source('gibbs functions2.R')
 source('helper functions.R')
 source('gibbs sampler2.R')
 
+
+setwd("~/Documents/Snail Kite Project/Data/R Scripts/ValleLabUF/method_comparison")
 
 #load and manipulate data
 dat<- read.csv("CRW_HC_sim.csv", as.is = T)  #for hard-clustering sim

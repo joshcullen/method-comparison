@@ -2,7 +2,7 @@
 #### Run LDA Model ####
 #######################
 
-setwd("~/Documents/Snail Kite Project/Data/R Scripts/git_LDA_behavior")  #NEED TO CHANGE
+setwd("~/Documents/Snail Kite Project/Data/R Scripts/ValleLabUF/git_LDA_behavior")
 
 set.seed(1)
 
@@ -22,6 +22,7 @@ source('gibbs sampler.R')
 source('helper functions.R')
 sourceCpp('aux1.cpp')
 
+setwd("~/Documents/Snail Kite Project/Data/R Scripts/ValleLabUF/method_comparison")
 
 #get data
 dat<- read.csv("CRW_HC_tsegs.csv", as.is = T)  #hard clustering sim
